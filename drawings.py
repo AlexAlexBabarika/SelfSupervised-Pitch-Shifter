@@ -44,6 +44,7 @@ def waveform_chart(
         )
     )
     return (
+        # pyrefly: ignore [bad-return]
         (envelope + rms_top + rms_bot)
         .configure_view(strokeOpacity=0)
         .configure_axis(grid=False)
@@ -144,6 +145,7 @@ def spectrogram_chart(
             x2="t1:Q",
             y=alt.Y("f0:Q", title="Frequency (Hz)"),
             y2="f1:Q",
+            # pyrefly: ignore [bad-argument-type]
             color=alt.Color("value:Q", title="log-mel", scale=alt.Scale(scheme=scheme)),
         )
         .properties(width=760, height=260, title=title)

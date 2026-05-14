@@ -10,3 +10,6 @@
 __pycache__/
 example.wav
 .DS_STORE
+.git
+.swp
+.env

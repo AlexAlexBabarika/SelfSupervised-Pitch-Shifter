@@ -20,10 +20,7 @@ def resample_audio(
         raise ValueError(
             f"The target rate of {target_sr} isn't supported. Supported rates:\n{SUPPORTED_SRS}"
         )
-    return [
-        librosa.resample(audio, orig_sr=original_sr, target_sr=target_sr),
-        target_sr,
-    ]
+    return librosa.resample(audio, orig_sr=original_sr, target_sr=target_sr), target_sr
 
 
 def normalize_audio(audio: np.ndarray, sr: int, target_lufs: int = -23) -> np.ndarray:
