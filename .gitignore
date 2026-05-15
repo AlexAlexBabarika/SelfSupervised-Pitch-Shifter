@@ -13,3 +13,4 @@ example.wav
 .git
 .swp
 .env
+cache/
