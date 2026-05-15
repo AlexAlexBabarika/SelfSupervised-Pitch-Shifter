@@ -1,0 +1,38 @@
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from kernels import get_kernel
+
+activation = get_kernel("kernels-community/activation")
+
+class F0Encoder(nn.Module):
+    def __init__(self, out_dim: int = 16):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv1d(1, 32, 5, padding=2),
+            activation.layers.Silu(),
+            nn.Conv1d(32, 64, 5, padding=2),
+            activation.layers.Silu(),
+            nn.Conv1d(64, out_dim, 1)
+        )
+
+    def forward(self, f0: torch.Tensor, n_mels: int):
+        # f0: [B, T]
+        h = self.encoder(f0.unsqueeze(1)) # [B, C, T]
+        h = h.unsqueeze(2).expand(-1, -1, n_mels, -1) # broadcast to mel bins
+        return h # [B, C, n_mels, T]
+
+
+class ShiftEncoder(nn.Module):
+    def __init__(self, out_dim: int = 64):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Linear(1, out_dim),
+            activation.layers.Silu(),
+            nn.Linear(out_dim, out_dim)
+        )
+
+    def forward(self, shift: torch.Tensor):
+        return self.encoder(shift.unsqueeze(-1))
+        
