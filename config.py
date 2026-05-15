@@ -10,7 +10,7 @@ class AudioConfig:
     n_mels: int = 80
     win_length: int = 1024
     clip_seconds: float = 2.56
-    crepe_model_capacity: str = "large"
+    crepe_model_capacity: str = "full"
     fmin: int = 0
     fmax: int = 8000
 
@@ -18,3 +18,9 @@ class AudioConfig:
 @dataclass
 class CacheConfig:
     cache_dir: str = "./cache"
+
+    nsynth_hf_dataset_name: str = "jg583/NSynth"
+    nsynth_length_hr: int = 2
+
+    vctk_hf_dataset_name: str = "sanchit-gandhi/vctk"
+    vctk_length_hr: int = 2
