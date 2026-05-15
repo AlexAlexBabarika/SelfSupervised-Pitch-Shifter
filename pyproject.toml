@@ -7,6 +7,8 @@ requires-python = ">=3.13"
 dependencies = [
     "altair>=6.1.0",
     "crepe==0.0.16",
+    "datasets>=4.8.5",
+    "dotenv>=0.9.9",
     "huggingface>=0.0.1",
     "librosa>=0.11.0",
     "mypy>=2.0.0",
@@ -18,7 +20,22 @@ dependencies = [
     "soundfile>=0.13.1",
     "tensorflow>=2.21.0",
     "torch>=2.11.0",
+    "torchaudio>=2.11.0",
+    "torchcodec>=0.12.0",
+    "tqdm>=4.67.3",
+    "types-tqdm>=4.67.3.20260508",
 ]
 
 [tool.uv.extra-build-dependencies]
 crepe = ["setuptools<81"]
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
+
+[dependency-groups]
+dev = [
+    "pyrefly>=1.0.0",
+]
