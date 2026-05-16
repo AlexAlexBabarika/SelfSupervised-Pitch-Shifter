@@ -69,3 +69,22 @@ class ResBlock(nn.Module):
         return h + self.skip(x)
 
 
+class GatedSkip(nn.Module):
+    def __init__(self, channels: int, f0_dim: int):
+        super().__init__()
+        self.gate = nn.Sequential(
+            nn.Conv1d(f0_dim, channels, 1),
+            activation.layers.Silu(),
+            nn.Conv1d(channels, channels, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, skip: torch.Tensor, f0_feat: torch.Tensor) -> torch.Tensor:
+        # skip: [B, C, H, W]
+        # f0_feat: [B, C_f0, n_mels, T_full] — pool to skip's W (time) length
+        B, C, H, W = skip.shape
+        f = F.adaptive_avg_pool2d(f0_feat, (1, W)).squeeze(2)  # [B, C_f0, W]
+        g = self.gate(f).unsqueeze(2)  # [B, C, 1, W]
+        return skip * g
+
+
