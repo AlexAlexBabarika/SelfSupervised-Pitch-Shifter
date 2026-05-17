@@ -126,6 +126,7 @@ class PitchUNet(nn.Module):
 
         # encoder
         chs = [base * m for m in mults]  # e.g. [64,128,256,384]
+        self.down_factor = 2 ** len(mults)
         self.enc_blocks = nn.ModuleList()
         self.downs = nn.ModuleList()
         prev = base
@@ -168,7 +169,17 @@ class PitchUNet(nn.Module):
         shift: torch.Tensor,
         skip_dropout_p: float = 0.0,
     ):
-        B, _, n_mels, T = mel.shape
+        B, _, H_in, T_in = mel.shape
+
+        # Pad mel and f0 so spatial dims are divisible by the downsample factor;
+        df = self.down_factor
+        pad_h = (df - H_in % df) % df
+        pad_w = (df - T_in % df) % df
+        if pad_h or pad_w:
+            mel = F.pad(mel, (0, pad_w, 0, pad_h))
+            f0 = F.pad(f0, (0, pad_w))
+
+        n_mels = mel.shape[-2]
         cond = self.shift_mlp(shift)  # [B, cond_dim]
         f0_feat = self.f0_enc(f0, n_mels)  # [B, C_f0, n_mels, T]
 
@@ -204,7 +215,7 @@ class PitchUNet(nn.Module):
             x = block(x, cond)
 
         x = self.out_conv(F.silu(self.out_norm(x)))
-        return x  # [B, 1, n_mels, T]
+        return x[..., :H_in, :T_in]  # [B, 1, n_mels, T]
 
 
 def count_params(m: nn.Module) -> int:
