@@ -61,7 +61,10 @@ class PitchDataset(Dataset):
         if self.is_train:
             semis = random.uniform(-self.perturb_st, self.perturb_st)
         else:
-            semis = 0.0
+            rng = random.Random(index)
+            semis = rng.uniform(-self.perturb_st, self.perturb_st)
+            if abs(semis) < 0.5:
+                semis = 0.5 if semis >= 0 else -0.5
 
         # Real audio-domain pitch shift, then recompute mel — mel_in
         # carries the artifact profile of a phase-vocoder shift rather than a
