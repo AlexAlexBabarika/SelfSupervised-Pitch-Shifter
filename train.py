@@ -156,7 +156,7 @@ def save_ckpt(model, ema, step, final=False):
     torch.save(
         {
             "model": model.state_dict(),
-            "ema": ema.shadow,
+            "ema": {"shadow": ema.shadow, "step": ema.step},
             "step": step,
             "lr": train_config.lr,
         },
