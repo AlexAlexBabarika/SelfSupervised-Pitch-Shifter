@@ -12,7 +12,7 @@ class F0Encoder(nn.Module):
     def __init__(self, out_dim: int = 64):
         super().__init__()
         self.encoder = nn.Sequential(
-            nn.Conv1d(1, 32, 5, padding=2),
+            nn.Conv1d(2, 32, 5, padding=2),
             activation.layers.Silu(),
             nn.Conv1d(32, 64, 5, padding=2),
             activation.layers.Silu(),
@@ -20,8 +20,8 @@ class F0Encoder(nn.Module):
         )
 
     def forward(self, f0: torch.Tensor, n_mels: int):
-        # f0: [B, T]
-        h = self.encoder(f0.unsqueeze(1))  # [B, C, T]
+        # f0: [B, 2, T] — (log2(f0+1), voiced_mask)
+        h = self.encoder(f0)  # [B, C, T]
         h = h.unsqueeze(2).expand(-1, -1, n_mels, -1)  # broadcast to mel bins
         return h  # [B, C, n_mels, T]
 
@@ -30,11 +30,13 @@ class ShiftEncoder(nn.Module):
     def __init__(self, out_dim: int = 64):
         super().__init__()
         self.encoder = nn.Sequential(
-            nn.Linear(1, out_dim), activation.layers.Silu(), nn.Linear(out_dim, out_dim)
+            nn.Linear(2, out_dim), activation.layers.Silu(), nn.Linear(out_dim, out_dim)
         )
 
-    def forward(self, shift: torch.Tensor):
-        return self.encoder(shift.unsqueeze(-1))
+    def forward(self, shift: torch.Tensor, cond_mask: torch.Tensor):
+        # shift, cond_mask: [B]; cond_mask=1 when conditioning is present, 0 when dropped
+        x = torch.stack([shift, cond_mask], dim=-1)
+        return self.encoder(x)
 
 
 class FiLM(nn.Module):
@@ -167,20 +169,23 @@ class PitchUNet(nn.Module):
         mel: torch.Tensor,
         f0: torch.Tensor,
         shift: torch.Tensor,
+        cond_mask: torch.Tensor,
         skip_dropout_p: float = 0.0,
     ):
         B, _, H_in, T_in = mel.shape
 
         # Pad mel and f0 so spatial dims are divisible by the downsample factor;
+        # mel pads with the log-silence floor (matches preprocessing), f0 pads
+        # with 0 (unvoiced).
         df = self.down_factor
         pad_h = (df - H_in % df) % df
         pad_w = (df - T_in % df) % df
         if pad_h or pad_w:
-            mel = F.pad(mel, (0, pad_w, 0, pad_h))
+            mel = F.pad(mel, (0, pad_w, 0, pad_h), value=math.log(1e-5))
             f0 = F.pad(f0, (0, pad_w))
 
         n_mels = mel.shape[-2]
-        cond = self.shift_mlp(shift)  # [B, cond_dim]
+        cond = self.shift_mlp(shift, cond_mask)  # [B, cond_dim]
         f0_feat = self.f0_enc(f0, n_mels)  # [B, C_f0, n_mels, T]
 
         x = torch.cat([mel, f0_feat], dim=1)  # [B, 1+C_f0, n_mels, T]
@@ -230,7 +235,8 @@ if __name__ == "__main__":
     m = PitchUNet()
     print(f"Params: {count_params(m) / 1e6:.2f} M")
     mel = torch.randn(2, 1, 80, 220)
-    f0 = torch.randn(2, 220)
+    f0 = torch.randn(2, 2, 220)
     sh = torch.zeros(2)
-    out = m(mel, f0, sh, skip_dropout_p=0.2)
+    cm = torch.ones(2)
+    out = m(mel, f0, sh, cm, skip_dropout_p=0.2)
     print("out:", out.shape)
