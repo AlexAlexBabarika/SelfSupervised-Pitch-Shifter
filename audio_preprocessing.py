@@ -17,7 +17,7 @@ CLIP_LEN = int(cfg.clip_seconds * cfg.target_sr)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 meter = pyloudnorm.Meter(rate=cfg.target_sr)
-mel = torchaudio.transforms.MelSpectrogram(
+MEL_TRANSFORM = torchaudio.transforms.MelSpectrogram(
     sample_rate=cfg.target_sr,
     n_fft=cfg.n_fft,
     hop_length=cfg.hop_length,
@@ -73,7 +73,7 @@ def compute_mel_spectrogram(
     audio: np.ndarray,
 ) -> np.ndarray:
     t = torch.from_numpy(audio).float().unsqueeze(0).to(DEVICE)
-    m = mel(t).squeeze(0).cpu().numpy()
+    m = MEL_TRANSFORM(t).squeeze(0).cpu().numpy()
 
     return np.log(np.maximum(m, 1e-5)).astype(np.float32)
 
