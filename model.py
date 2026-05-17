@@ -196,18 +196,22 @@ class PitchUNet(nn.Module):
         x = self.attn(x)
         x = self.bot2(x, cond)
 
+        # Sample skip-dropout mask once per sample and share it across all
+        # decoder layers
+        if self.training and skip_dropout_p > 0:
+            skip_mask = (
+                torch.rand(B, 1, 1, 1, device=mel.device) > skip_dropout_p
+            ).float()
+        else:
+            skip_mask = None
+
         for up, block, gate, skip in zip(
             self.ups, self.dec_blocks, self.skip_gates, reversed(skips)
         ):
             x = up(x)
             gated = gate(skip, f0_feat)
-            # random skip dropout: occasionally force decoder to rely on
-            # bottleneck + F0 only. Strengthens disentanglement.
-            if self.training and skip_dropout_p > 0:
-                mask = (
-                    torch.rand(B, 1, 1, 1, device=x.device) > skip_dropout_p
-                ).float()
-                gated = gated * mask
+            if skip_mask is not None:
+                gated = gated * skip_mask
             # match spatial size in case of off-by-one from odd input dims
             if gated.shape[-2:] != x.shape[-2:]:
                 gated = F.interpolate(gated, size=x.shape[-2:], mode="nearest")
