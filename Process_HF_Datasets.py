@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,11 @@ from audio_preprocessing import process_and_save
 from config import AudioConfig, DataConfig
 
 DATASETS_DIR = Path("./datasets")
+
+
+def _write_index(cache: Path, subdir: str) -> None:
+    files = sorted(str(p) for p in (cache / subdir).glob("*.npz"))
+    (cache / f"{subdir}_index.json").write_text(json.dumps(files))
 
 
 def _local_parquet_files(root: Path, pattern: str) -> list[str]:
@@ -87,12 +93,14 @@ def main() -> None:
         audio_cfg.target_sr,
         data_cfg.nsynth_length_hr * 3600.0,
     )
+    _write_index(cache, data_cfg.nsynth_subdir_name)
     process_vctk(
         vctk_dir,
         cache / data_cfg.vctk_subdir_name,
         audio_cfg.target_sr,
         data_cfg.vctk_length_hr * 3600.0,
     )
+    _write_index(cache, data_cfg.vctk_subdir_name)
 
 
 if __name__ == "__main__":
