@@ -42,17 +42,27 @@ def mel_pitch_shift(mel: torch.Tensor, semitones: float) -> torch.Tensor:
     idx_hi = np.searchsorted(_MEL_CENTERS, src_freqs)
     idx_lo = np.clip(idx_hi - 1, 0, n_mels - 1)
     idx_hi = np.clip(idx_hi, 0, n_mels - 1)
-    pick_hi = np.abs(_MEL_CENTERS[idx_hi] - src_freqs) <= np.abs(
-        _MEL_CENTERS[idx_lo] - src_freqs
-    )
-    src_idx = np.where(pick_hi, idx_hi, idx_lo)
+
+    lo_freq = _MEL_CENTERS[idx_lo]
+    hi_freq = _MEL_CENTERS[idx_hi]
+    denom = hi_freq - lo_freq
+    safe_denom = np.where(denom > 0, denom, 1.0)
+    w = np.where(denom > 0, (src_freqs - lo_freq) / safe_denom, 0.0)
+    w = np.clip(w, 0.0, 1.0).astype(np.float32)
+
     in_range = (src_freqs >= _MEL_CENTERS[0]) & (src_freqs <= _MEL_CENTERS[-1])
 
-    src_idx_t = torch.from_numpy(src_idx).long().to(mel.device)
+    idx_lo_t = torch.from_numpy(idx_lo).long().to(mel.device)
+    idx_hi_t = torch.from_numpy(idx_hi).long().to(mel.device)
+    w_t = torch.from_numpy(w).to(mel.device, dtype=mel.dtype)
     in_range_t = torch.from_numpy(in_range).to(mel.device)
-    floor = mel.min()
+    floor = mel.new_full((), math.log(1e-5))
 
-    out = mel.index_select(-2, src_idx_t)
+    lo = mel.index_select(-2, idx_lo_t)
+    hi = mel.index_select(-2, idx_hi_t)
+    w_view = w_t.view(*([1] * (mel.ndim - 2)), n_mels, 1)
+    out = (1.0 - w_view) * lo + w_view * hi
+
     mask_shape = [1] * (out.ndim - 2) + [n_mels, 1]
     return torch.where(in_range_t.view(*mask_shape), out, floor)
 
@@ -78,7 +88,12 @@ class PitchDataset(Dataset):
     def __getitem__(self, index):
         d = np.load(self.files[index])
         mel = torch.from_numpy(d["mel"])
-        f0 = torch.from_numpy(d["f0"])
+        f0_raw = torch.from_numpy(d["f0"])
+        conf = torch.from_numpy(d["conf"])
+
+        voiced = (conf > 0.5).to(f0_raw.dtype)
+        f0_norm = torch.log2(f0_raw.clamp(min=0.0) + 1.0)
+        f0_feat = torch.stack([f0_norm, voiced], dim=0)  # [2, T]
 
         # Self-Supervised perturbation
         if self.is_train:
@@ -91,7 +106,7 @@ class PitchDataset(Dataset):
         return {
             "mel_in": mel_in.unsqueeze(0),  # [1, 80, T]
             "mel_tgt": mel.unsqueeze(0),  # [1, 80, T]
-            "f0": f0,  # [T]
+            "f0": f0_feat,  # [2, T]
             "shift": -semis,
         }
 
