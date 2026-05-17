@@ -1,11 +1,11 @@
-import os, math, time, random, copy
-from pathlib import Path
+import math
 import torch
 import torch.nn.functional as F
+from pathlib import Path
 from tqdm import tqdm
 from config import TrainConfig
 from model import PitchUNet, count_params
-from losses import TotalLoss, MultiResMelLoss
+from losses import TotalLoss 
 from data import PitchDataset
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -141,7 +141,10 @@ def validate(model, ema, eval_model, loader, step):
         pred = eval_model(mel_in, f0, shift, cond_mask)
         total += F.l1_loss(pred, mel_tgt).item() * mel_in.size(0)
         n += mel_in.size(0)
-    print(f"\n[val step {step}] L1={total / n:.4f}")
+    if n == 0:
+        print(f"\n[val step {step}] empty val set — skipping")
+    else:
+        print(f"\n[val step {step}] L1={total / n:.4f}")
     save_ckpt(model, ema, step, False)
 
 
