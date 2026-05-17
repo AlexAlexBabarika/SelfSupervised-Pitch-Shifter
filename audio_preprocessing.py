@@ -88,7 +88,9 @@ def extract_f0(
 
     w16 = librosa.resample(audio, orig_sr=cfg.target_sr, target_sr=16000)
     audio_t = torch.from_numpy(w16).float().unsqueeze(0).to(DEVICE)
-    hop = int(round(16000 * cfg.hop_length / cfg.target_sr))
+    # CREPE frame interval is 186/16000 ≈ 11.625 ms; mel frame interval is 256/22050 ≈ 11.610 ms. The np.interp later masks it
+    # Across 220 frames it's gonna be around 3ms. Has to be examined
+    hop = round(16000 * cfg.hop_length / cfg.target_sr)
 
     pitch, periodicity = torchcrepe.predict(
         audio_t,
@@ -124,16 +126,15 @@ def process_and_save(
         if budget["remaining_s"] <= 0:
             break
         mel = compute_mel_spectrogram(clip)  # [80, T]
-        _, f0, _ = extract_f0(clip)  # [T_f0]
-        # align F0 length to mel length
+        _, f0, conf = extract_f0(clip)  # [T_f0]
+        # align F0 and periodicity to mel length
         if len(f0) != mel.shape[1]:
-            f0 = np.interp(
-                np.linspace(0, 1, mel.shape[1]),
-                np.linspace(0, 1, len(f0)),
-                f0,
-            ).astype(np.float32)
+            x_new = np.linspace(0, 1, mel.shape[1])
+            x_old = np.linspace(0, 1, len(f0))
+            f0 = np.interp(x_new, x_old, f0).astype(np.float32)
+            conf = np.interp(x_new, x_old, conf).astype(np.float32)
         out_path = out_dir / f"{base_id}_{i:04d}.npz"
-        np.savez(out_path, mel=mel, f0=f0)
+        np.savez(out_path, mel=mel, f0=f0, conf=conf)
         seconds = CLIP_LEN / cfg.target_sr
         written += seconds
         budget["remaining_s"] -= seconds
