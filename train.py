@@ -129,12 +129,14 @@ def validate(model, ema, loader, step):
         total += F.l1_loss(pred, mel_tgt).item() * mel_in.size(0)
         n += mel_in.size(0)
     print(f"\n[val step {step}] L1={total / n:.4f}")
-    save_ckpt(model, ema, None, step)
+    save_ckpt(model, ema, step, False)
 
 
 def save_ckpt(model, ema, step, final=False):
     name = "final.pt" if final else f"step_{step}.pt"
-    path = Path(train_config.ckpt_dir) / name
+    ckpt_dir = Path(train_config.ckpt_dir)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    path = ckpt_dir / name
     torch.save(
         {
             "model": model.state_dict(),
