@@ -6,7 +6,7 @@ from tqdm import tqdm
 from config import TrainConfig
 from model import PitchUNet, count_params
 from losses import TotalLoss, MultiResMelLoss
-from data import mel_pitch_shift, PitchDataset
+from data import PitchDataset
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 train_config = TrainConfig()

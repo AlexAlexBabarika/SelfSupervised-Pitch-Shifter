@@ -134,7 +134,13 @@ def process_and_save(
             f0 = np.interp(x_new, x_old, f0).astype(np.float32)
             conf = np.interp(x_new, x_old, conf).astype(np.float32)
         out_path = out_dir / f"{base_id}_{i:04d}.npz"
-        np.savez(out_path, mel=mel, f0=f0, conf=conf)
+        np.savez(
+            out_path,
+            audio=clip.astype(np.float32),
+            mel=mel,
+            f0=f0,
+            conf=conf,
+        )
         seconds = CLIP_LEN / cfg.target_sr
         written += seconds
         budget["remaining_s"] -= seconds
