@@ -14,8 +14,8 @@ class MultiResMelLoss(nn.Module):
             if s == 1:
                 p, t = pred, tgt
             else:
-                p = F.avg_pool2d(pred, kernel_size=(s, 1))
-                t = F.avg_pool2d(tgt, kernel_size=(s, 1))
+                p = F.avg_pool2d(pred, kernel_size=s)
+                t = F.avg_pool2d(tgt, kernel_size=s)
             loss = loss + F.l1_loss(p, t)
         # pyrefly: ignore [bad-return]
         return loss / len(self.scales)
