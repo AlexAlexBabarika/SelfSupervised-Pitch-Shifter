@@ -92,7 +92,7 @@ class PitchDataset(Dataset):
             "mel_in": mel_in.unsqueeze(0),  # [1, 80, T]
             "mel_tgt": mel.unsqueeze(0),  # [1, 80, T]
             "f0": f0,  # [T]
-            "pitch": -semis,
+            "shift": -semis,
         }
 
     @staticmethod
