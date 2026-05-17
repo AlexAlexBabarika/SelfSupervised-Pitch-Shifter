@@ -15,6 +15,7 @@ train_config = TrainConfig()
 class EMA:
     def __init__(self, model, decay=0.999):
         self.decay = decay
+        self.step = 0
         self.shadow = {
             n: p.detach().clone()
             for n, p in model.named_parameters()
@@ -23,9 +24,12 @@ class EMA:
 
     @torch.no_grad()
     def update(self, model):
+        # Ramp decay so early EMA isn't dominated by the random init.
+        self.step += 1
+        d = min(self.decay, (1 + self.step) / (10 + self.step))
         for n, p in model.named_parameters():
             if n in self.shadow:
-                self.shadow[n].mul_(self.decay).add_(p.detach(), alpha=1 - self.decay)
+                self.shadow[n].mul_(d).add_(p.detach(), alpha=1 - d)
 
     @torch.no_grad()
     def copy_to(self, model):
@@ -46,6 +50,7 @@ def lr_lambda(step):
 
 def main():
     model = PitchUNet().to(device)
+    eval_model = PitchUNet().to(device)
     print(f"Model: {count_params(model) / 1e6:.2f} M params")
 
     opt = torch.optim.AdamW(
@@ -71,10 +76,13 @@ def main():
             f0 = batch["f0"].to(device, non_blocking=True)
             shift = batch["shift"].to(device, non_blocking=True)
 
-            # Conditioning dropout: 10% of the time, zero out the shift signal
-            # so the model can't depend on it to detect identity case.
-            if random.random() < train_config.cond_dropout:
-                shift = torch.zeros_like(shift)
+            # Conditioning dropout: zero out the shift signal independently per
+            # sample so the model can't depend on it to detect identity case.
+            keep = (
+                torch.rand(shift.shape[0], device=shift.device)
+                >= train_config.cond_dropout
+            ).to(shift.dtype)
+            shift = shift * keep
 
             with torch.autocast(
                 device_type="cuda", dtype=torch.bfloat16, enabled=(device == "cuda")
@@ -103,7 +111,7 @@ def main():
                 )
 
             if step % train_config.val_every == 0:
-                validate(model, ema, val_loader, step)
+                validate(model, ema, eval_model, val_loader, step)
 
             if step >= train_config.max_steps:
                 break
@@ -113,9 +121,9 @@ def main():
 
 
 @torch.no_grad()
-def validate(model, ema, loader, step):
-    # Validate with EMA weights
-    eval_model = copy.deepcopy(model)
+def validate(model, ema, eval_model, loader, step):
+    # Validate with EMA weights — reuse a single eval_model instead of
+    # deep-copying `model` each call.
     ema.copy_to(eval_model)
     eval_model.eval()
 
@@ -134,9 +142,7 @@ def validate(model, ema, loader, step):
 
 def save_ckpt(model, ema, step, final=False):
     name = "final.pt" if final else f"step_{step}.pt"
-    ckpt_dir = Path(train_config.ckpt_dir)
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-    path = ckpt_dir / name
+    path = Path(train_config.ckpt_dir) / name
     torch.save(
         {
             "model": model.state_dict(),
