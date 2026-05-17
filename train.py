@@ -88,7 +88,10 @@ def main():
                 device_type="cuda", dtype=torch.bfloat16, enabled=(device == "cuda")
             ):
                 pred = model(
-                    mel_in, f0, shift, keep,
+                    mel_in,
+                    f0,
+                    shift,
+                    keep,
                     skip_dropout_p=train_config.skip_dropout,
                 )
                 loss, parts = loss_fn(pred, mel_tgt)
