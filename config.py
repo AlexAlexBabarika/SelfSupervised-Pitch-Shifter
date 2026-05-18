@@ -42,6 +42,18 @@ class DataConfig:
                 length_hr=2,
                 parquet_glob="data/train-*.parquet",
             ),
+            "opensinger_female": DatasetSpec(
+                hf_name="CodecSR/opensinger_female",
+                subdir="opensinger_fem",
+                length_hr=2,
+                parquet_glob="data/train/*.parquet",
+            ),
+            "opensinger_male": DatasetSpec(
+                hf_name="CodecSR/opensinger_male",
+                subdir="opensinger_male",
+                length_hr=2,
+                parquet_glob="data/train/*.parquet",
+            ),
         }
     )
     datasets_to_load: list[str] = field(default_factory=lambda: ["nsynth", "vctk"])

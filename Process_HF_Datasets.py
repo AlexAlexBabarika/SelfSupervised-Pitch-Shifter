@@ -84,9 +84,41 @@ def process_vctk(
     pbar.close()
 
 
+def process_opensinger(
+    parquet_root: Path,
+    parquet_glob: str,
+    out_dir: Path,
+    target_sr: int,
+    budget_s: float,
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    files = _local_parquet_files(parquet_root, parquet_glob)
+    if not files:
+        raise FileNotFoundError(f"No process_singer parquet files under {parquet_root}")
+
+    ds = _stream_parquet(files, target_sr)
+
+    budget = {"remaining_s": budget_s}
+    pbar = tqdm(total=int(budget_s), unit="s", desc="VCTK")
+    for i, ex in enumerate(ds):
+        if budget["remaining_s"] <= 0:
+            break
+        wav = ex["audio"]["array"].astype(np.float32)
+        src_sr = ex["audio"]["sampling_rate"]
+        spk = ex.get("id", f"unk_{i}")
+        gender = ex.get("gender", "")
+        sec = process_and_save(
+            wav, src_sr, out_dir, f"o_{gender}_{spk}_{i:06d}", budget
+        )
+        pbar.update(int(sec))
+    pbar.close()
+
+
 PROCESSORS = {
     "nsynth": process_nsynth,
     "vctk": process_vctk,
+    "opensinger_female": process_opensinger,
+    "opensinger_male": process_opensinger,
 }
 
 
