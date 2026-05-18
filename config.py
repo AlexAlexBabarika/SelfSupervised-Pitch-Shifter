@@ -49,6 +49,8 @@ class TrainConfig:
     skip_dropout: float = 0.2
     log_every: int = 100
     val_every: int = 5000
+    save_every: int = 100
+    keep_last: int = 5
     ckpt_dir: str = "./checkpoints"
 
 

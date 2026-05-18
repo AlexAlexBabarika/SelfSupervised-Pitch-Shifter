@@ -1,11 +1,14 @@
 import math
+import os
+import re
+import sys
 import torch
 import torch.nn.functional as F
 from pathlib import Path
 from tqdm import tqdm
 from config import TrainConfig
 from model import PitchUNet, count_params
-from losses import TotalLoss 
+from losses import TotalLoss
 from data import PitchDataset
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -67,8 +70,18 @@ def main():
     val_loader = PitchDataset.make_loader("val")
 
     step = 0
+    ckpt = load_latest(Path(train_config.ckpt_dir))
+    if ckpt is not None:
+        model.load_state_dict(ckpt["model"])
+        opt.load_state_dict(ckpt["opt"])
+        sched.load_state_dict(ckpt["sched"])
+        ema.shadow = ckpt["ema"]["shadow"]
+        ema.step = ckpt["ema"]["step"]
+        step = ckpt["step"]
+        print(f"resumed from step {step}")
+
     model.train()
-    pbar = tqdm(total=train_config.max_steps)
+    pbar = tqdm(total=train_config.max_steps, initial=step)
     while step < train_config.max_steps:
         for batch in train_loader:
             mel_in = batch["mel_in"].to(device, non_blocking=True)
@@ -114,13 +127,16 @@ def main():
                     lr=f"{sched.get_last_lr()[0]:.2e}",
                 )
 
+            if step % train_config.save_every == 0:
+                save_ckpt(model, ema, opt, sched, step)
+
             if step % train_config.val_every == 0:
                 validate(model, ema, eval_model, val_loader, step)
 
             if step >= train_config.max_steps:
                 break
 
-    save_ckpt(model, ema, step, final=True)
+    save_ckpt(model, ema, opt, sched, step, final=True)
     pbar.close()
 
 
@@ -145,24 +161,62 @@ def validate(model, ema, eval_model, loader, step):
         print(f"\n[val step {step}] empty val set — skipping")
     else:
         print(f"\n[val step {step}] L1={total / n:.4f}")
-    save_ckpt(model, ema, step, False)
 
 
-def save_ckpt(model, ema, step, final=False):
+_STEP_CKPT_RE = re.compile(r"^step_(\d+)\.pt$")
+
+
+def _step_ckpts(ckpt_dir: Path):
+    out = []
+    for p in ckpt_dir.glob("step_*.pt"):
+        m = _STEP_CKPT_RE.match(p.name)
+        if m:
+            out.append((int(m.group(1)), p))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def save_ckpt(model, ema, opt, sched, step, final=False):
     name = "final.pt" if final else f"step_{step}.pt"
     ckpt_dir = Path(train_config.ckpt_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     path = ckpt_dir / name
+    tmp = path.with_suffix(path.suffix + ".tmp")
     torch.save(
         {
             "model": model.state_dict(),
+            "opt": opt.state_dict(),
+            "sched": sched.state_dict(),
             "ema": {"shadow": ema.shadow, "step": ema.step},
             "step": step,
-            "lr": train_config.lr,
         },
-        path,
+        tmp,
     )
-    print(f"saved {path}")
+    os.replace(tmp, path)
+
+    if not final:
+        # Prune oldest step_*.pt so at most `keep_last` remain.
+        ckpts = _step_ckpts(ckpt_dir)
+        for _, old in ckpts[: -train_config.keep_last]:
+            old.unlink(missing_ok=True)
+
+
+def load_latest(ckpt_dir: Path):
+    if not ckpt_dir.exists():
+        return None
+    if (ckpt_dir / "final.pt").exists():
+        print(
+            f"{ckpt_dir / 'final.pt'} exists — training already complete. "
+            "Delete it to start a new run.",
+            file=sys.stderr,
+        )
+        sys.exit(0)
+    ckpts = _step_ckpts(ckpt_dir)
+    if not ckpts:
+        return None
+    _, path = ckpts[-1]
+    print(f"loading {path}")
+    return torch.load(path, map_location=device, weights_only=False)
 
 
 if __name__ == "__main__":
