@@ -9,6 +9,7 @@ from typing import List
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from config import DataConfig, TrainConfig, AudioConfig
+from audio_preprocessing import f0_to_feature
 
 data_cfg = DataConfig()
 audio_cfg = AudioConfig()
@@ -24,6 +25,8 @@ _mel = torchaudio.transforms.MelSpectrogram(
     f_max=audio_cfg.fmax,
     power=1.0,
     center=True,
+    norm="slaney",
+    mel_scale="slaney",
 )
 
 
@@ -90,14 +93,7 @@ class PitchDataset(Dataset):
             )
 
         f0_hz_in = f0_raw * (2.0 ** (semis / 12.0))
-        voiced = (conf > 0.5).to(f0_raw.dtype)
-
-        # Drop voicing when the shifted fundamental leaves the analysable
-        # range (no harmonics left in the mel band).
-        in_range = f0_hz_in < (audio_cfg.fmax / 2.0)
-        voiced = voiced * in_range.to(voiced.dtype)
-        f0_norm = torch.log2(f0_hz_in.clamp(min=0.0) + 1.0)
-        f0_feat = torch.stack([f0_norm, voiced], dim=0)  # [2, T]
+        f0_feat = f0_to_feature(f0_hz_in, conf, fmax=audio_cfg.fmax)  # [2, T]
 
         return {
             "mel_in": mel_in.unsqueeze(0),  # [1, 80, T]
