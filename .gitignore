@@ -15,3 +15,6 @@ example.wav
 .env
 cache/
 datasets/
+checkpoints/
+runs/
+wandb/
