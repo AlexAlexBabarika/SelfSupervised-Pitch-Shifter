@@ -2,12 +2,14 @@ import math
 import os
 import re
 import sys
+from dataclasses import asdict
 import torch
 import torch.nn.functional as F
+import wandb
 from pathlib import Path
 from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import tqdm
-from config import TrainConfig
+from config import AudioConfig, DataConfig, ModelConfig, TrainConfig
 from model import PitchUNet, count_params
 from losses import TotalLoss
 from data import PitchDataset
@@ -83,6 +85,21 @@ def main():
         step = ckpt["step"]
         print(f"resumed from step {step}")
 
+    if train_config.use_wandb:
+        wandb.init(
+            project=train_config.wandb_project,
+            name=train_config.wandb_run_name,
+            id=train_config.wandb_run_id,
+            resume="allow",
+            config={
+                "train": asdict(train_config),
+                "audio": asdict(AudioConfig()),
+                "data": asdict(DataConfig()),
+                "model": asdict(ModelConfig()),
+            },
+        )
+        wandb.watch(model, log="gradients", log_freq=train_config.log_every)
+
     model.train()
     pbar = tqdm(total=train_config.max_steps, initial=step)
     while step < train_config.max_steps:
@@ -137,6 +154,17 @@ def main():
                 writer.add_scalar("train/mr", parts["mr"], step)
                 writer.add_scalar("train/lr", lr, step)
                 writer.add_scalar("train/grad_norm", grad_norm.item(), step)
+                if train_config.use_wandb:
+                    wandb.log(
+                        {
+                            "train/loss": loss.item(),
+                            "train/l1": parts["l1"],
+                            "train/mr": parts["mr"],
+                            "train/lr": lr,
+                            "train/grad_norm": grad_norm.item(),
+                        },
+                        step=step,
+                    )
 
             if step % train_config.save_every == 0:
                 save_ckpt(model, ema, opt, sched, step)
@@ -150,6 +178,8 @@ def main():
     save_ckpt(model, ema, opt, sched, step, final=True)
     pbar.close()
     writer.close()
+    if train_config.use_wandb:
+        wandb.finish()
 
 
 @torch.no_grad()
@@ -175,6 +205,8 @@ def validate(model, ema, eval_model, loader, step, writer):
         val_l1 = total / n
         print(f"\n[val step {step}] L1={val_l1:.4f}")
         writer.add_scalar("val/l1", val_l1, step)
+        if train_config.use_wandb:
+            wandb.log({"val/l1": val_l1}, step=step)
 
 
 _STEP_CKPT_RE = re.compile(r"^step_(\d+)\.pt$")

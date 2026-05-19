@@ -25,6 +25,7 @@ dependencies = [
     "torchcrepe>=0.0.24",
     "tqdm>=4.67.3",
     "types-tqdm>=4.67.3.20260508",
+    "wandb>=0.27.0",
 ]
 
 [tool.pyrefly]
