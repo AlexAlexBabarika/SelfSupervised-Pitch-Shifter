@@ -1,15 +1,13 @@
 import json
 import random
-import math
 import numpy as np
 import torch
 import torchaudio
-import librosa
 from typing import List
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from config import DataConfig, TrainConfig, AudioConfig
-from audio_preprocessing import f0_to_feature
+from audio_preprocessing import f0_to_feature, world_pitch_shift
 
 data_cfg = DataConfig()
 audio_cfg = AudioConfig()
@@ -61,8 +59,8 @@ class PitchDataset(Dataset):
         with np.load(self.files[index]) as d:
             audio = d["audio"].astype(np.float32, copy=True)
             mel_tgt = torch.from_numpy(d["mel"].copy())  # log-mel of the original clip
-            f0_raw = torch.from_numpy(d["f0"].copy())  # Hz, aligned to mel frames
-            conf = torch.from_numpy(d["conf"].copy())
+            f0_raw = d["f0"].copy()  # Hz, aligned to mel frames
+            conf = d["conf"].copy()
 
         if self.is_train:
             semis = random.uniform(-self.perturb_st, self.perturb_st)
@@ -72,28 +70,20 @@ class PitchDataset(Dataset):
             if abs(semis) < 0.5:
                 semis = 0.5 if semis >= 0 else -0.5
 
-        # Real audio-domain pitch shift, then recompute mel — mel_in
-        # carries the artifact profile of a phase-vocoder shift rather than a
-        # mel-bin warp.
+        # WORLD round trip: shift by +semis, then back by -semis. mel_in sits at
+        # the original pitch and carries the artifact profile of a WORLD shift,
+        # which is what inference feeds the model after its single shift.
         if abs(semis) > 1e-4:
-            audio_shifted = librosa.effects.pitch_shift(
-                audio, sr=audio_cfg.target_sr, n_steps=semis
-            )
+            ratio = 2.0 ** (semis / 12.0)
+            shifted = world_pitch_shift(audio, f0_raw, conf, semis)
+            audio_in = world_pitch_shift(shifted, f0_raw * ratio, conf, -semis)
         else:
-            audio_shifted = audio
-        mel_in = _audio_to_log_mel(audio_shifted)
+            audio_in = audio
+        mel_in = _audio_to_log_mel(audio_in)
 
-        # pitch_shift can leave a +-1 frame offset after mel; clamp to target.
-        T = mel_tgt.shape[-1]
-        if mel_in.shape[-1] > T:
-            mel_in = mel_in[..., :T]
-        elif mel_in.shape[-1] < T:
-            mel_in = torch.nn.functional.pad(
-                mel_in, (0, T - mel_in.shape[-1]), value=math.log(1e-5)
-            )
-
-        f0_hz_in = f0_raw * (2.0 ** (semis / 12.0))
-        f0_feat = f0_to_feature(f0_hz_in, conf, fmax=audio_cfg.fmax)  # [2, T]
+        f0_feat = f0_to_feature(
+            torch.from_numpy(f0_raw), torch.from_numpy(conf), fmax=audio_cfg.fmax
+        )  # [2, T]
 
         return {
             "mel_in": mel_in.unsqueeze(0),  # [1, 80, T]

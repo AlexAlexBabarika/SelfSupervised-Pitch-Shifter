@@ -1,8 +1,8 @@
 # pitch-shifter
 
-A neural pitch shifter for vocals and music. Instead of warping audio with a
-classic phase vocoder, it predicts the *target* mel-spectrogram of a pitch-shifted
-signal with a conditional U-Net and resynthesizes audio with a HiFi-GAN vocoder.
+A neural pitch shifter for vocals. A formant-preserving WORLD shift moves the
+pitch, a conditional U-Net then predicts the clean mel-spectrogram of the shifted
+signal, and a HiFi-GAN vocoder resynthesizes the audio.
 For full songs it separates stems with Demucs, shifts only the vocals, and remixes.
 
 ## How it works
@@ -11,7 +11,9 @@ For full songs it separates stems with Demucs, shifts only the vocals, and remix
 song.wav
   └─ Demucs (htdemucs) ── vocals ──► [resample 22.05 kHz]
                        │                     │
-                       │              log-mel + F0 (CREPE)
+                       │              F0 (CREPE)
+                       │                     │
+                       │              WORLD shift ──► log-mel
                        │                     │
                        │              PitchUNet (mel → mel)
                        │                     │
@@ -36,9 +38,11 @@ so early training predicts ≈0 (i.e. the loss starts as `|target|`).
 
 Training (`train.py`) uses an L1 + multi-resolution mel loss (`losses.py`), AdamW
 with cosine decay and warmup, EMA weights, gradient clipping, and bf16 autocast on
-CUDA. The input mel is produced by a *real* audio-domain `librosa.pitch_shift`, so
-the network learns to clean up the artifact profile of a phase-vocoder shift rather
-than a trivial mel-bin warp.
+CUDA. The input mel comes from a WORLD round trip (shift by `+s`, then back by
+`-s`) of the original clip, so the network learns to remove the artifacts of a
+WORLD shift while the target stays the untouched original. Inference applies a
+single WORLD shift and hands the result to the network. WORLD models one voice,
+so backing vocals and heavy reverb in the input degrade the result.
 
 ## Layout
 
@@ -47,8 +51,8 @@ than a trivial mel-bin warp.
 | `config.py` | All hyperparameters (`AudioConfig`, `DataConfig`, `TrainConfig`, `ModelConfig`) |
 | `Download_HF_Datasets.py` | Pull dataset parquet shards from the Hugging Face Hub |
 | `Process_HF_Datasets.py` | Stream parquet → preprocessed `.npz` clips + index files |
-| `audio_preprocessing.py` | Loudness norm, segmentation, mel + CREPE F0 extraction |
-| `data.py` | `PitchDataset` / dataloader; applies the train-time pitch perturbation |
+| `audio_preprocessing.py` | Loudness norm, segmentation, mel + CREPE F0 extraction, WORLD shift |
+| `data.py` | `PitchDataset` / dataloader; applies the train-time WORLD round trip |
 | `model.py` | `PitchUNet` and conditioning modules |
 | `losses.py` | L1 + multi-resolution mel loss |
 | `train.py` | Training loop, EMA, checkpointing, TensorBoard / W&B logging |

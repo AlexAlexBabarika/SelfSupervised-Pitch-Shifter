@@ -1,4 +1,5 @@
 import pyloudnorm
+import pyworld
 import librosa
 import torchaudio
 import torch
@@ -92,6 +93,28 @@ def f0_to_feature(
     return torch.stack([f0_norm, voiced], dim=-2)
 
 
+def world_pitch_shift(
+    audio: np.ndarray, f0_hz: np.ndarray, conf: np.ndarray, semis: float
+) -> np.ndarray:
+    # audio: [samples], f0_hz/conf: [T] aligned to mel frames. WORLD resynthesis
+    # with the F0 track scaled and the spectral envelope kept, so formants stay put.
+    x = np.ascontiguousarray(audio, dtype=np.float64)
+    f0 = np.where(conf > 0.5, f0_hz, 0.0).astype(np.float64)
+    t = np.arange(len(f0), dtype=np.float64) * cfg.hop_length / cfg.target_sr
+    sp = pyworld.cheaptrick(x, f0, t, cfg.target_sr)
+    ap = pyworld.d4c(x, f0, t, cfg.target_sr)
+    y = pyworld.synthesize(
+        f0 * 2.0 ** (semis / 12.0),
+        sp,
+        ap,
+        cfg.target_sr,
+        1000.0 * cfg.hop_length / cfg.target_sr,
+    )
+    n = len(x)
+    y = y[:n] if len(y) >= n else np.pad(y, (0, n - len(y)))
+    return y.astype(np.float32)
+
+
 def extract_f0(clips: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     if cfg.crepe_model_capacity not in CREPE_MODEL_CAPACITIES:
         raise ValueError(
@@ -111,7 +134,7 @@ def extract_f0(clips: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         model=cfg.crepe_model_capacity,
         batch_size=2048,
         device=DEVICE,
-        decoder=torchcrepe.decode.viterbi,
+        decoder=torchcrepe.decode.argmax,
         return_periodicity=True,
     )
 

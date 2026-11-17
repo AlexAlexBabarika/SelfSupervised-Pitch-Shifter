@@ -2,7 +2,12 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from audio_preprocessing import compute_mel_spectrogram, extract_f0, f0_to_feature
+from audio_preprocessing import (
+    compute_mel_spectrogram,
+    extract_f0,
+    f0_to_feature,
+    world_pitch_shift,
+)
 from config import AudioConfig
 from inference.stitch import overlap_add
 from inference.vocoder import HiFiGANVocoder
@@ -48,15 +53,25 @@ def shift_audio_through_model(
         batch_np = clips[i : i + batch_size]
         B = batch_np.shape[0]
 
-        mel_np = compute_mel_spectrogram(batch_np)  # [B, n_mels, T_mel]
         f0_np, conf_np = extract_f0(batch_np)  # [B, T_f0]
 
-        T_mel = mel_np.shape[-1]
+        T_mel = 1 + clip_len // cfg.hop_length
         T_f0 = f0_np.shape[-1]
         if T_f0 != T_mel:
             idx = np.round(np.linspace(0, T_f0 - 1, T_mel)).astype(np.int64)
             f0_np = f0_np[:, idx]
             conf_np = conf_np[:, idx]
+
+        # WORLD does the shift; the UNet only cleans up its artifacts.
+        if abs(semis) > 1e-4:
+            batch_np = np.stack(
+                [
+                    world_pitch_shift(c, f, p, semis)
+                    for c, f, p in zip(batch_np, f0_np, conf_np)
+                ]
+            )
+            f0_np = f0_np * 2.0 ** (semis / 12.0)
+        mel_np = compute_mel_spectrogram(batch_np)  # [B, n_mels, T_mel]
 
         mel = torch.from_numpy(mel_np).to(device)  # [B, n_mels, T]
         f0_hz = torch.from_numpy(f0_np).to(device)
