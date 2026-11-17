@@ -83,8 +83,8 @@ class TrainConfig:
     betas = (0.8, 0.99)
     grad_clip: float = 1.0
     ema_decay: float = 0.999
-    cond_dropout: float = 0.1
-    skip_dropout: float = 0.2
+    cond_dropout: float = 0.0
+    skip_dropout: float = 0.0
     log_every: int = 100
     val_every: int = 5000
     save_every: int = 100
