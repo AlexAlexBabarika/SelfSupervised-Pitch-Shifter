@@ -22,13 +22,13 @@ class DatasetSpec:
     subdir: str
     length_hr: int
     parquet_glob: str
+    group_minutes: float = 5.0
 
 
 @dataclass
 class DataConfig:
     cache_dir: str = "./cache"
     val_split: float = 0.02
-    max_group_minutes: float = 5.0
 
     datasets: dict[str, DatasetSpec] = field(
         default_factory=lambda: {
@@ -41,26 +41,27 @@ class DataConfig:
             "vctk": DatasetSpec(
                 hf_name="sanchit-gandhi/vctk",
                 subdir="vctk",
-                length_hr=2,
+                length_hr=3,
                 parquet_glob="data/train-*.parquet",
             ),
             "opensinger_female": DatasetSpec(
                 hf_name="CodecSR/opensinger_female",
                 subdir="opensinger_fem",
-                length_hr=2,
+                length_hr=3,
                 parquet_glob="data/original-*.parquet",
+                group_minutes=90,
             ),
             "opensinger_male": DatasetSpec(
                 hf_name="CodecSR/opensinger_male",
                 subdir="opensinger_male",
-                length_hr=2,
+                length_hr=3,
                 parquet_glob="data/original-*.parquet",
+                group_minutes=90,
             ),
         }
     )
     datasets_to_load: list[str] = field(
         default_factory=lambda: [
-            "nsynth",
             "vctk",
             "opensinger_female",
             "opensinger_male",

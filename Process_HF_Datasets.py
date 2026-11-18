@@ -154,7 +154,7 @@ def main() -> None:
             cache / spec.subdir,
             audio_cfg.target_sr,
             spec.length_hr * 3600.0,
-            data_cfg.max_group_minutes * 60.0,
+            spec.group_minutes * 60.0,
         )
         _write_index(cache, spec.subdir)
 
