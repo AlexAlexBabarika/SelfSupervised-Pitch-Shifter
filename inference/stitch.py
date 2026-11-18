@@ -2,9 +2,10 @@ import numpy as np
 
 
 def overlap_add(clips: np.ndarray, hop: int, clip_len: int) -> np.ndarray:
-    assert clips.ndim == 2, f"clips must be [N, T], got {clips.shape}"
-    assert clips.shape[1] == clip_len, (
-        f"clip width {clips.shape[1]} != clip_len {clip_len}"
+    # clips: [N, ..., clip_len], cross-faded along the last axis.
+    assert clips.ndim >= 2, f"clips must be [N, ..., T], got {clips.shape}"
+    assert clips.shape[-1] == clip_len, (
+        f"clip width {clips.shape[-1]} != clip_len {clip_len}"
     )
     N = clips.shape[0]
     if N == 1:
@@ -14,7 +15,7 @@ def overlap_add(clips: np.ndarray, hop: int, clip_len: int) -> np.ndarray:
     assert 0 < overlap <= clip_len, f"hop {hop} must give overlap in (0, clip_len]"
 
     out_len = hop * (N - 1) + clip_len
-    out = np.zeros(out_len, dtype=np.float32)
+    out = np.zeros(clips.shape[1:-1] + (out_len,), dtype=np.float32)
 
     phase = np.pi * (np.arange(overlap, dtype=np.float64) + 0.5) / overlap
     ramp_up = (0.5 * (1.0 - np.cos(phase))).astype(np.float32)
@@ -30,6 +31,6 @@ def overlap_add(clips: np.ndarray, hop: int, clip_len: int) -> np.ndarray:
 
     for i in range(N):
         start = i * hop
-        out[start : start + clip_len] += _windowed(i)
+        out[..., start : start + clip_len] += _windowed(i)
 
     return out

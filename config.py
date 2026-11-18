@@ -10,6 +10,7 @@ class AudioConfig:
     n_mels: int = 80
     win_length: int = 1024
     clip_seconds: float = 2.56
+    segment_seconds: float = 5.12
     crepe_model_capacity: str = "full"
     voiced_threshold: float = 0.3
     fmin: int = 0
@@ -94,6 +95,10 @@ class TrainConfig:
     keep_last: int = 5
     ckpt_dir: str = "./checkpoints"
     tb_dir: str = "./runs"
+    use_wandb: bool = False
+    wandb_project: str = "pitch-shifter"
+    wandb_run_name: str | None = None
+    wandb_run_id: str | None = None
 
 
 @dataclass

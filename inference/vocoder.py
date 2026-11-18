@@ -33,6 +33,7 @@ class HiFiGANVocoder:
         self.generator.remove_weight_norm()
         self.device = device
         self.sample_rate = int(getattr(h, "sampling_rate", V1_CONFIG["sampling_rate"]))
+        self.hop = int(getattr(h, "hop_size", V1_CONFIG["hop_size"]))
 
     @torch.inference_mode()
     def mel_to_audio(self, log_mel: torch.Tensor) -> torch.Tensor:
@@ -41,3 +42,20 @@ class HiFiGANVocoder:
         x = log_mel.to(self.device)
         audio = self.generator(x).squeeze(1)
         return audio.clamp(-1.0, 1.0).float()
+
+    @torch.inference_mode()
+    def mel_to_audio_long(
+        self, log_mel: torch.Tensor, chunk: int = 1024, context: int = 64
+    ) -> torch.Tensor:
+        # log_mel: [n_mels, T] of any length. Vocodes in chunks that see
+        # `context` extra frames on each side and keeps only the centre, so
+        # the result matches one pass over the whole mel without its memory.
+        T = log_mel.shape[-1]
+        pieces = []
+        for start in range(0, T, chunk):
+            end = min(start + chunk, T)
+            a, b = max(0, start - context), min(T, end + context)
+            audio = self.mel_to_audio(log_mel[None, :, a:b])[0]
+            lo = (start - a) * self.hop
+            pieces.append(audio[lo : lo + (end - start) * self.hop].cpu())
+        return torch.cat(pieces)

@@ -1,5 +1,4 @@
 import argparse
-import re
 import sys
 from pathlib import Path
 
@@ -12,13 +11,12 @@ import numpy as np
 import torch
 import torchaudio
 
-from config import AudioConfig
-from model import PitchUNet
+from config import TrainConfig
+from inference.checkpoint import find_ckpt, load_unet
 
 
 DEMUCS_SR = 44100
 DEFAULT_VOCODER_REPO = "alexalexbabarika/hifigan-universal-v1"
-_STEP_RE = re.compile(r"^step_(\d+)\.pt$")
 
 
 def _resolve_device(arg: str) -> torch.device:
@@ -29,37 +27,6 @@ def _resolve_device(arg: str) -> torch.device:
             return torch.device("mps")
         return torch.device("cpu")
     return torch.device(arg)
-
-
-def _find_latest_ckpt(ckpt_dir: Path) -> Path | None:
-    final = Path("final.pt")
-    if final.exists():
-        return final
-    if not ckpt_dir.exists():
-        return None
-    candidates = []
-    for p in ckpt_dir.glob("step_*.pt"):
-        m = _STEP_RE.match(p.name)
-        if m:
-            candidates.append((int(m.group(1)), p))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda x: x[0])
-    return candidates[-1][1]
-
-
-def _load_unet(ckpt_path: Path, device: torch.device, use_ema: bool) -> PitchUNet:
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-    model = PitchUNet().to(device)
-    model.load_state_dict(ckpt["model"])
-    if use_ema:
-        shadow = ckpt["ema"]["shadow"]
-        with torch.no_grad():
-            for n, p in model.named_parameters():
-                if n in shadow:
-                    p.copy_(shadow[n].to(device))
-    model.eval()
-    return model
 
 
 def _peak_normalize(audio: np.ndarray, headroom: float = 0.99) -> np.ndarray:
@@ -113,13 +80,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--no-separate",
         action="store_true",
-        help="Skip Demucs and shift the whole mix.",
+        help="Skip Demucs. For solo vocal recordings only: the shifter models "
+        "a single voice and will not work on a full mix.",
     )
     p.add_argument(
         "--ckpt",
         type=Path,
         default=None,
-        help="PitchUNet checkpoint. Default: ./final.pt if present, "
+        help="PitchUNet checkpoint. Default: ./best.pt, else ./final.pt, "
         "else latest step_*.pt under ./checkpoints/.",
     )
     p.add_argument(
@@ -146,10 +114,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Input not found: {args.input}", file=sys.stderr)
         return 2
 
-    device = _resolve_device(args.device)
-    audio_cfg = AudioConfig()
+    max_shift = TrainConfig().perturb_st
+    if abs(args.semitones) > max_shift:
+        print(
+            f"Warning: the model was trained on shifts up to ±{max_shift} semitones; "
+            f"{args.semitones:+g} is outside that range.",
+            file=sys.stderr,
+        )
 
-    ckpt = args.ckpt or _find_latest_ckpt(Path("./checkpoints"))
+    device = _resolve_device(args.device)
+
+    ckpt = args.ckpt or find_ckpt(Path("./checkpoints"))
     if ckpt is None:
         print(
             "No checkpoint found in ./checkpoints/ and --ckpt not given.",
@@ -158,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.verbose:
         print(f"Loading PitchUNet from {ckpt}")
-    unet = _load_unet(ckpt, device, use_ema=not args.no_ema)
+    unet = load_unet(ckpt, device, use_ema=not args.no_ema)
 
     # Local imports keep cold startup snappy if -h is the only ask.
     from inference.pipeline import shift_audio_through_model
@@ -178,12 +153,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.no_separate:
         if args.verbose:
-            print(f"Loading {args.input} (mono @ {audio_cfg.target_sr} Hz)")
-        audio, _ = librosa.load(args.input, sr=audio_cfg.target_sr, mono=True)
+            print(f"Loading {args.input} (mono @ {DEMUCS_SR} Hz)")
+        audio, _ = librosa.load(args.input, sr=DEMUCS_SR, mono=True)
         if args.verbose:
             print(f"Shifting by {args.semitones:+g} semitones")
         shifted = shift_audio_through_model(
             audio,
+            DEMUCS_SR,
             args.semitones,
             unet,
             vocoder,
@@ -192,9 +168,9 @@ def main(argv: list[str] | None = None) -> int:
             verbose=args.verbose,
         )
         shifted = _peak_normalize(shifted)
-        _write_wav(output, shifted, audio_cfg.target_sr)
+        _write_wav(output, shifted, DEMUCS_SR)
         if args.verbose:
-            print(f"Wrote {output} @ {audio_cfg.target_sr} Hz")
+            print(f"Wrote {output} @ {DEMUCS_SR} Hz")
         return 0
 
     from inference.separation import separate_stems
@@ -217,14 +193,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.verbose:
         print(f"Saved stems to {stems_dir}")
 
-    vocals_mono_44k = stems["vocals"].mean(dim=0).numpy()
-    vocals_22k = librosa.resample(
-        vocals_mono_44k, orig_sr=DEMUCS_SR, target_sr=audio_cfg.target_sr
-    )
+    # Mid/side: the mid (what both channels share, i.e. the voice) goes
+    # through the model; the side (reverb, doubles) is not a single voice, so
+    # it gets a plain phase-vocoder shift and the stereo image is rebuilt.
+    vocals = stems["vocals"].numpy()
+    mid = vocals.mean(axis=0)
+    side = (vocals[0] - vocals[1]) / 2.0
     if args.verbose:
         print(f"Shifting vocals by {args.semitones:+g} semitones")
-    shifted_22k = shift_audio_through_model(
-        vocals_22k,
+    mid = shift_audio_through_model(
+        mid,
+        DEMUCS_SR,
         args.semitones,
         unet,
         vocoder,
@@ -232,11 +211,10 @@ def main(argv: list[str] | None = None) -> int:
         batch_size=args.batch_size,
         verbose=args.verbose,
     )
-
-    shifted_44k_mono = librosa.resample(
-        shifted_22k, orig_sr=audio_cfg.target_sr, target_sr=DEMUCS_SR
-    )
-    shifted_44k = np.stack([shifted_44k_mono, shifted_44k_mono], axis=0)
+    if float(np.abs(side).max()) > 1e-6:
+        side = librosa.effects.pitch_shift(side, sr=DEMUCS_SR, n_steps=args.semitones)
+        side = _match_length(side, mid.shape[-1])
+    shifted_44k = np.stack([mid + side, mid - side], axis=0)
 
     target_len = max(shifted_44k.shape[-1], int(stems["drums"].shape[-1]))
     mix = _match_length(shifted_44k, target_len).copy()

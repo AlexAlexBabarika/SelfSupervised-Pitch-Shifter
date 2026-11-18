@@ -15,6 +15,9 @@ cfg = AudioConfig()
 SUPPORTED_SRS = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000]
 CREPE_MODEL_CAPACITIES = ["tiny", "full"]
 CLIP_LEN = int(cfg.clip_seconds * cfg.target_sr)
+# Stored segments are longer than a training clip so the loader can crop at
+# random offsets.
+SEG_LEN = int(cfg.segment_seconds * cfg.target_sr)
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -74,13 +77,13 @@ def normalize_audio(audio: np.ndarray) -> np.ndarray:
 
 def segment_audio(audio: np.ndarray) -> Generator[tuple[np.ndarray, int]]:
     n = len(audio)
-    for start in range(0, n, CLIP_LEN):
-        clip = audio[start : start + CLIP_LEN]
+    for start in range(0, n, SEG_LEN):
+        clip = audio[start : start + SEG_LEN]
         real_len = len(clip)
         if real_len < CLIP_LEN // 2:
             continue
-        if real_len < CLIP_LEN:
-            clip = np.pad(clip, (0, CLIP_LEN - real_len))
+        if real_len < SEG_LEN:
+            clip = np.pad(clip, (0, SEG_LEN - real_len))
         yield clip, real_len
 
 
@@ -105,25 +108,45 @@ def f0_to_feature(
 
 
 def world_pitch_shift(
-    audio: np.ndarray, f0_hz: np.ndarray, conf: np.ndarray, semis: float
+    audio: np.ndarray,
+    f0_hz: np.ndarray,
+    conf: np.ndarray,
+    semis: float,
+    sr: int = cfg.target_sr,
 ) -> np.ndarray:
-    # audio: [samples], f0_hz/conf: [T] aligned to mel frames. WORLD resynthesis
+    # audio: [samples] @ sr, f0_hz/conf: [T] on the mel frame grid (hop_length
+    # samples at target_sr, whatever sr is). WORLD resynthesis
     # with the F0 track scaled and the spectral envelope kept, so formants stay put.
     x = np.ascontiguousarray(audio, dtype=np.float64)
     f0 = np.where(conf > cfg.voiced_threshold, f0_hz, 0.0).astype(np.float64)
     t = np.arange(len(f0), dtype=np.float64) * cfg.hop_length / cfg.target_sr
-    sp = pyworld.cheaptrick(x, f0, t, cfg.target_sr)
-    ap = pyworld.d4c(x, f0, t, cfg.target_sr)
+    sp = pyworld.cheaptrick(x, f0, t, sr)
+    ap = pyworld.d4c(x, f0, t, sr)
     y = pyworld.synthesize(
         f0 * 2.0 ** (semis / 12.0),
         sp,
         ap,
-        cfg.target_sr,
+        sr,
         1000.0 * cfg.hop_length / cfg.target_sr,
     )
     n = len(x)
     y = y[:n] if len(y) >= n else np.pad(y, (0, n - len(y)))
     return y.astype(np.float32)
+
+
+def _decode_f0(probs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    # probs: [B, 360, T]. Argmax bin refined by a probability-weighted average
+    # over its neighbours. torchcrepe's own argmax decoder snaps to 20-cent
+    # bins and then adds random dither, which makes the track jitter.
+    bins = probs.argmax(dim=1)
+    offsets = torch.arange(-4, 5, device=probs.device).view(1, -1, 1)
+    idx = bins.unsqueeze(1) + offsets
+    inside = (idx >= 0) & (idx < probs.shape[1])
+    idx = idx.clamp(0, probs.shape[1] - 1)
+    w = probs.gather(1, idx).clamp(min=0.0) * inside
+    cents = torchcrepe.CENTS_PER_BIN * idx + 1997.3794084376191
+    cents = (w * cents).sum(1) / w.sum(1).clamp(min=1e-8)
+    return bins, torchcrepe.convert.cents_to_frequency(cents)
 
 
 def extract_f0(clips: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -145,7 +168,7 @@ def extract_f0(clips: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         model=cfg.crepe_model_capacity,
         batch_size=512,
         device=DEVICE,
-        decoder=torchcrepe.decode.argmax,
+        decoder=_decode_f0,
         return_periodicity=True,
     )
     pitch = torchcrepe.filter.median(pitch, 3)
@@ -182,26 +205,21 @@ def process_and_save(
         return 0.0
 
     batch = np.stack(clips, axis=0)
-    mels = compute_mel_spectrogram(batch)  # (B, n_mels, T_mel)
     f0s, confs = extract_f0(batch)  # (B, T_f0)
+    n_frames = 1 + SEG_LEN // cfg.hop_length
 
     written = 0.0
-    for i, (clip, real_len, mel, f0, conf) in enumerate(
-        zip(clips, real_lens, mels, f0s, confs)
-    ):
-        if f0.shape[0] != mel.shape[1]:
+    for i, (clip, real_len, f0, conf) in enumerate(zip(clips, real_lens, f0s, confs)):
+        if f0.shape[0] != n_frames:
             # Nearest-neighbor: linear interp would smear CREPE's 0-Hz unvoiced
             # frames into bogus low pitches across voiced -> unvoiced transitions.
-            idx = np.round(np.linspace(0, f0.shape[0] - 1, mel.shape[1])).astype(
-                np.int64
-            )
+            idx = np.round(np.linspace(0, f0.shape[0] - 1, n_frames)).astype(np.int64)
             f0 = f0[idx]
             conf = conf[idx]
         out_path = out_dir / f"{base_id}_{i:04d}.npz"
         np.savez(
             out_path,
-            audio=clip.astype(np.float32),
-            mel=mel,
+            audio=clip[:real_len].astype(np.float32),
             f0=f0,
             conf=conf,
             real_len=real_len,

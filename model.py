@@ -3,9 +3,51 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from kernels import get_kernel
-from config import ModelConfig, TrainConfig
+from config import AudioConfig, ModelConfig, TrainConfig
 
 activation = get_kernel("kernels-community/activation")
+
+
+def _hz_to_mel(f: torch.Tensor) -> torch.Tensor:
+    # Slaney scale, matching the mel filterbank used for the spectrograms.
+    f_sp = 200.0 / 3.0
+    min_log_hz = 1000.0
+    min_log_mel = min_log_hz / f_sp
+    logstep = math.log(6.4) / 27.0
+    log_part = min_log_mel + torch.log(f.clamp(min=min_log_hz) / min_log_hz) / logstep
+    return torch.where(f >= min_log_hz, log_part, f / f_sp)
+
+
+class HarmonicTemplate(nn.Module):
+    # Renders where the harmonics of the F0 track fall on the mel axis, so the
+    # convolutions get pitch as a picture instead of a per-frame scalar.
+    def __init__(self, n_harmonics: int = 64, sigma_bins: float = 0.5):
+        super().__init__()
+        cfg = AudioConfig()
+        self.n_mels = cfg.n_mels
+        self.fmax = float(cfg.fmax)
+        self.sigma = sigma_bins
+        lo = _hz_to_mel(torch.tensor(float(cfg.fmin)))
+        hi = _hz_to_mel(torch.tensor(self.fmax))
+        self.mel_lo = float(lo)
+        self.mel_step = float((hi - lo) / (cfg.n_mels + 1))
+        self.register_buffer(
+            "k", torch.arange(1, n_harmonics + 1).float().view(1, -1, 1), False
+        )
+        self.register_buffer(
+            "bins", torch.arange(cfg.n_mels).float().view(1, 1, -1, 1), False
+        )
+
+    @torch.no_grad()
+    def forward(self, f0: torch.Tensor) -> torch.Tensor:
+        # f0: [B, 2, T] — (log2(f0+1), voiced_mask). Returns [B, 1, n_mels, T].
+        hz = (2.0 ** f0[:, :1].float() - 1.0).clamp(min=0.0)  # [B, 1, T]
+        harm = hz * self.k  # [B, K, T]
+        # filter m is centred at mel_lo + (m + 1) * mel_step
+        pos = (_hz_to_mel(harm) - self.mel_lo) / self.mel_step - 1.0
+        valid = (harm < self.fmax).float() * f0[:, 1:].float()
+        bumps = torch.exp(-0.5 * ((self.bins - pos.unsqueeze(2)) / self.sigma) ** 2)
+        return (bumps * valid.unsqueeze(2)).sum(1, keepdim=True).clamp(max=1.0)
 
 
 class F0Encoder(nn.Module):
@@ -138,7 +180,8 @@ class PitchUNet(nn.Module):
         # shift, f0 embs
         self.shift_mlp = ShiftEncoder(out_dim=shift_emb_dim)
         self.f0_enc = F0Encoder(out_dim=f0_dim)
-        in_ch = 1 + f0_dim  # mel(1) + f0 features
+        self.harmonics = HarmonicTemplate()
+        in_ch = 2 + f0_dim  # mel(1) + harmonic template(1) + f0 features
         self.stem = nn.Conv2d(in_ch, base, 3, padding=1)
 
         # encoder
@@ -174,7 +217,8 @@ class PitchUNet(nn.Module):
         self.out_norm = nn.GroupNorm(8, base)
         self.out_conv = nn.Conv2d(base, 1, 3, padding=1)
 
-        # zero-init output so initial output ≈ 0; loss starts as |target|
+        # zero-init output so the initial residual is 0 and the model starts
+        # as the identity on its input mel
         nn.init.zeros_(self.out_conv.weight)
         # pyrefly: ignore [bad-argument-type]
         nn.init.zeros_(self.out_conv.bias)
@@ -188,6 +232,7 @@ class PitchUNet(nn.Module):
         skip_dropout_p: float = 0.0,
     ):
         B, _, H_in, T_in = mel.shape
+        mel_in = mel
 
         # Pad mel and f0 so spatial dims are divisible by the downsample factor;
         # mel pads with the log-silence floor (matches preprocessing), f0 pads
@@ -203,7 +248,11 @@ class PitchUNet(nn.Module):
         cond = self.shift_mlp(shift, cond_mask)  # [B, cond_dim]
         f0_feat = self.f0_enc(f0, n_mels)  # [B, C_f0, n_mels, T]
 
-        x = torch.cat([mel, f0_feat], dim=1)  # [B, 1+C_f0, n_mels, T]
+        template = self.harmonics(f0)  # [B, 1, n_mels, T]
+        if template.shape[-2] != n_mels:
+            template = F.pad(template, (0, 0, 0, n_mels - template.shape[-2]))
+
+        x = torch.cat([mel, template, f0_feat], dim=1)  # [B, 2+C_f0, n_mels, T]
         x = self.stem(x)
 
         skips = []
@@ -239,7 +288,8 @@ class PitchUNet(nn.Module):
             x = block(x, cond)
 
         x = self.out_conv(F.silu(self.out_norm(x)))
-        return x[..., :H_in, :T_in]  # [B, 1, n_mels, T]
+        # residual on the input: the network only predicts the correction
+        return mel_in + x[..., :H_in, :T_in]  # [B, 1, n_mels, T]
 
 
 def count_params(m: nn.Module) -> int:

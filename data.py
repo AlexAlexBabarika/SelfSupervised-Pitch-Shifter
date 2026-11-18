@@ -7,7 +7,7 @@ from typing import List
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from config import DataConfig, TrainConfig, AudioConfig
-from audio_preprocessing import f0_to_feature, world_pitch_shift
+from audio_preprocessing import CLIP_LEN, f0_to_feature, world_pitch_shift
 
 data_cfg = DataConfig()
 audio_cfg = AudioConfig()
@@ -72,10 +72,21 @@ class PitchDataset(Dataset):
     def __getitem__(self, index):
         with np.load(self.files[index]) as d:
             audio = d["audio"].astype(np.float32, copy=True)
-            mel_tgt = torch.from_numpy(d["mel"].copy())  # log-mel of the original clip
             f0_raw = d["f0"].copy()  # Hz, aligned to mel frames
             conf = d["conf"].copy()
-            real_len = int(d["real_len"])
+
+        # Crop one training clip out of the stored segment, at a random frame
+        # offset when training. Frame i is centred on sample i * hop.
+        hop = audio_cfg.hop_length
+        n_frames = 1 + CLIP_LEN // hop
+        max_k = max(0, (len(audio) - CLIP_LEN) // hop)
+        k = random.randint(0, max_k) if self.is_train else 0
+        audio = audio[k * hop : k * hop + CLIP_LEN]
+        real_len = len(audio)
+        audio = np.pad(audio, (0, CLIP_LEN - real_len))
+        f0_raw = f0_raw[k : k + n_frames]
+        conf = conf[k : k + n_frames]
+        mel_tgt = _audio_to_log_mel(audio)
 
         if self.is_train:
             semis = random.uniform(-self.perturb_st, self.perturb_st)
@@ -102,7 +113,7 @@ class PitchDataset(Dataset):
 
         # 1 on frames that hold real audio, 0 on the zero-padded tail
         mask = torch.zeros(1, 1, mel_tgt.shape[-1])
-        mask[..., : 1 + real_len // audio_cfg.hop_length] = 1.0
+        mask[..., : 1 + real_len // hop] = 1.0
 
         return {
             "mel_in": mel_in.unsqueeze(0),  # [1, 80, T]
