@@ -21,8 +21,10 @@ class Vocoder:
         # log_mel: [B, n_mels, T] in natural-log magnitude space.
         # Returns: [B, samples] float32 audio, peak-clamped to [-1, 1].
         x = log_mel.to(self.device)
-        audio = self.generator(x).squeeze(1)
-        return audio.clamp(-1.0, 1.0).float()
+        audio = self.generator(x).squeeze(1).clamp(-1.0, 1.0).float().cpu()
+        if self.device.type == "mps":
+            torch.mps.empty_cache()
+        return audio
 
     @torch.inference_mode()
     def mel_to_audio_long(

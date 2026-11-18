@@ -171,12 +171,13 @@ def extract_f0(clips: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         decoder=_decode_f0,
         return_periodicity=True,
     )
-    pitch = torchcrepe.filter.median(pitch, 3)
-    periodicity = torchcrepe.filter.median(periodicity, 3)
+    pitch = torchcrepe.filter.median(pitch, 3).cpu().numpy()
+    periodicity = torchcrepe.filter.median(periodicity, 3).cpu().numpy()
+    if DEVICE == "mps":
+        # MPS keeps several GB cached after CREPE; hand it back.
+        torch.mps.empty_cache()
 
-    return pitch.cpu().numpy().astype(np.float32), periodicity.cpu().numpy().astype(
-        np.float32
-    )
+    return pitch.astype(np.float32), periodicity.astype(np.float32)
 
 
 def process_and_save(
