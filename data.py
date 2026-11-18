@@ -120,6 +120,7 @@ class PitchDataset(Dataset):
             "mel_tgt": mel_tgt.unsqueeze(0),  # [1, 80, T]
             "f0": f0_feat,  # [2, T]
             "mask": mask,  # [1, 1, T]
+            "audio": torch.from_numpy(audio),  # [CLIP_LEN], clean
             "shift": torch.tensor(-semis, dtype=torch.float32),
         }
 

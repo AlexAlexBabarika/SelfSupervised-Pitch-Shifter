@@ -62,7 +62,7 @@ def shift_clip_batch(
             mel = unet(mel.unsqueeze(1), f0_feat, shift, cond_mask).squeeze(1)
         audio_out = vocoder.mel_to_audio(mel)  # [B, S]
 
-    a = audio_out.cpu().numpy()
+    a = audio_out.cpu().numpy()[:, vocoder.hop // 2 :]  # undo the half-hop lag
     out = np.zeros((B, clip_len), dtype=np.float32)
     L = min(a.shape[-1], clip_len)
     out[:, :L] = a[:, :L]

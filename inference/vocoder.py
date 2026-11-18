@@ -58,4 +58,6 @@ class HiFiGANVocoder:
             audio = self.mel_to_audio(log_mel[None, :, a:b])[0]
             lo = (start - a) * self.hop
             pieces.append(audio[lo : lo + (end - start) * self.hop].cpu())
-        return torch.cat(pieces)
+        # Our mels are centred on i * hop, the vocoder expects frames that
+        # start there, so its output lags by half a hop.
+        return torch.cat(pieces)[self.hop // 2 :]

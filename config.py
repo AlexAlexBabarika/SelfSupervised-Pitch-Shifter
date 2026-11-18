@@ -95,6 +95,11 @@ class TrainConfig:
     keep_last: int = 5
     ckpt_dir: str = "./checkpoints"
     tb_dir: str = "./runs"
+    # Waveform loss through the frozen vocoder; w_wave = 0 turns it off.
+    w_wave: float = 0.5
+    wave_batch: int = 8
+    wave_frames: int = 64
+    vocoder_repo: str = "alexalexbabarika/hifigan-universal-v1"
     use_wandb: bool = False
     wandb_project: str = "pitch-shifter"
     wandb_run_name: str | None = None

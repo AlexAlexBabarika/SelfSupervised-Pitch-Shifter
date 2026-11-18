@@ -10,7 +10,8 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import tqdm
 from config import AudioConfig, DataConfig, ModelConfig, TrainConfig
 from model import PitchUNet, count_params
-from losses import TotalLoss
+from inference.vocoder import HiFiGANVocoder
+from losses import TotalLoss, WaveformLoss
 from data import PitchDataset
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -66,6 +67,15 @@ def main():
     )
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)
     loss_fn = TotalLoss().to(device)
+    wave_loss_fn = None
+    if train_config.w_wave > 0:
+        vocoder = HiFiGANVocoder(train_config.vocoder_repo, device=torch.device(device))
+        wave_loss_fn = WaveformLoss(
+            vocoder.generator,
+            vocoder.hop,
+            train_config.wave_frames,
+            train_config.wave_batch,
+        ).to(device)
     ema = EMA(model, decay=train_config.ema_decay)
 
     train_loader = PitchDataset.make_loader("train")
@@ -130,6 +140,11 @@ def main():
                     skip_dropout_p=train_config.skip_dropout,
                 )
                 loss, parts = loss_fn(pred, mel_tgt, mask)
+                if wave_loss_fn is not None:
+                    audio = batch["audio"].to(device, non_blocking=True)
+                    wave = wave_loss_fn(pred, audio)
+                    loss = loss + train_config.w_wave * wave
+                    parts["wave"] = wave.item()
 
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -150,12 +165,14 @@ def main():
                     l1=f"{parts['l1']:.4f}",
                     mr=f"{parts['mr']:.4f}",
                     delta=f"{parts['delta']:.4f}",
+                    wave=f"{parts.get('wave', 0.0):.4f}",
                     lr=f"{lr:.2e}",
                 )
                 writer.add_scalar("train/loss", loss.item(), step)
                 writer.add_scalar("train/l1", parts["l1"], step)
                 writer.add_scalar("train/mr", parts["mr"], step)
                 writer.add_scalar("train/delta", parts["delta"], step)
+                writer.add_scalar("train/wave", parts.get("wave", 0.0), step)
                 writer.add_scalar("train/lr", lr, step)
                 writer.add_scalar("train/grad_norm", grad_norm.item(), step)
                 if train_config.use_wandb:
@@ -165,6 +182,7 @@ def main():
                             "train/l1": parts["l1"],
                             "train/mr": parts["mr"],
                             "train/delta": parts["delta"],
+                            "train/wave": parts.get("wave", 0.0),
                             "train/lr": lr,
                             "train/grad_norm": grad_norm.item(),
                         },

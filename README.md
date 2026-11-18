@@ -44,7 +44,9 @@ A self-attention block sits in the bottleneck. The network predicts a residual o
 its input mel and the output head is zero-initialized, so training starts from the
 identity (i.e. from the quality of the WORLD shift).
 
-Training (`train.py`) uses an L1 + multi-resolution mel loss (`losses.py`), AdamW
+Training (`train.py`) uses an L1 + multi-resolution + difference loss on the mel and
+a multi-resolution STFT loss on audio rendered through the frozen HiFi-GAN
+(`losses.py`; set `w_wave = 0` to turn the latter off), AdamW
 with cosine decay and warmup, EMA weights, gradient clipping, and bf16 autocast on
 CUDA. The input mel comes from a WORLD round trip (shift by `+s`, then back by
 `-s`) of the original clip, so the network learns to remove the artifacts of a
@@ -67,7 +69,7 @@ the model and the side channel gets a plain phase-vocoder shift.
 | `audio_preprocessing.py` | Loudness norm, segmentation, mel + CREPE F0 extraction, WORLD shift |
 | `data.py` | `PitchDataset` / dataloader; applies the train-time WORLD round trip |
 | `model.py` | `PitchUNet` and conditioning modules |
-| `losses.py` | L1 + multi-resolution mel loss |
+| `losses.py` | Mel losses and the waveform loss through the frozen vocoder |
 | `train.py` | Training loop, EMA, checkpointing, TensorBoard / W&B logging |
 | `inference.py` | CLI entrypoint: separate → shift → remix |
 | `inference/` | Demucs separation, HiFi-GAN vocoder, overlap-add stitching, pipeline |

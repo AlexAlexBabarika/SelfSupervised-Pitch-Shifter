@@ -46,3 +46,54 @@ class TotalLoss(nn.Module):
         delta = self.delta(diff) / kept
         total = self.w_l1 * l1 + self.w_mr * mr + self.w_delta * delta
         return total, {"l1": l1.item(), "mr": mr.item(), "delta": delta.item()}
+
+
+class MultiResSTFTLoss(nn.Module):
+    def __init__(self, resolutions=((512, 128), (1024, 256), (2048, 512))):
+        super().__init__()
+        self.resolutions = resolutions
+        for n_fft, _ in resolutions:
+            self.register_buffer(f"win_{n_fft}", torch.hann_window(n_fft), False)
+
+    def forward(self, pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+        # pred, tgt: [B, samples]. Spectral convergence + log-magnitude L1,
+        # averaged over resolutions. Magnitudes only, so phase is free.
+        loss = 0.0
+        for n_fft, hop in self.resolutions:
+            win = getattr(self, f"win_{n_fft}")
+            p = torch.stft(pred, n_fft, hop, window=win, return_complex=True).abs()
+            t = torch.stft(tgt, n_fft, hop, window=win, return_complex=True).abs()
+            p, t = p.clamp(min=1e-5), t.clamp(min=1e-5)
+            sc = torch.linalg.norm(t - p) / torch.linalg.norm(t)
+            loss = loss + sc + F.l1_loss(p.log(), t.log())
+        # pyrefly: ignore [bad-return]
+        return loss / len(self.resolutions)
+
+
+class WaveformLoss(nn.Module):
+    # Renders a crop of the predicted mel with the frozen vocoder and compares
+    # it with the clean audio, so the UNet is trained on what will be heard.
+    CONTEXT = 8  # extra mel frames each side; their audio is discarded
+
+    def __init__(self, generator: nn.Module, hop: int, frames: int, batch: int):
+        super().__init__()
+        self.generator = generator.requires_grad_(False)
+        self.stft = MultiResSTFTLoss()
+        self.hop = hop
+        self.frames = frames
+        self.batch = batch
+
+    def forward(self, pred_mel: torch.Tensor, audio: torch.Tensor) -> torch.Tensor:
+        # pred_mel: [B, 1, n_mels, T], audio: [B, samples] aligned to the mel.
+        ctx, hop = self.CONTEXT, self.hop
+        T = pred_mel.shape[-1]
+        frames = min(self.frames, T - 2 * ctx)
+        a = int(torch.randint(ctx, T - frames - ctx + 1, (1,)))
+        mel = pred_mel[: self.batch, 0, :, a - ctx : a + frames + ctx].float()
+        with torch.autocast(device_type=mel.device.type, enabled=False):
+            out = self.generator(mel)[:, 0, ctx * hop : (ctx + frames) * hop]
+            # The mels are centred on i * hop while the vocoder expects frames
+            # that start there, so its output lags the audio by half a hop.
+            start = a * hop - hop // 2
+            tgt = audio[: self.batch, start : start + frames * hop].float()
+            return self.stft(out, tgt)
