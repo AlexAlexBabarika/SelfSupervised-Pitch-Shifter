@@ -28,6 +28,7 @@ class DatasetSpec:
 class DataConfig:
     cache_dir: str = "./cache"
     val_split: float = 0.02
+    max_group_minutes: float = 5.0
 
     datasets: dict[str, DatasetSpec] = field(
         default_factory=lambda: {
@@ -83,12 +84,12 @@ class TrainConfig:
     weight_decay: float = 0.01
     betas = (0.8, 0.99)
     grad_clip: float = 1.0
-    ema_decay: float = 0.999
+    ema_decay: float = 0.9999
     cond_dropout: float = 0.0
     skip_dropout: float = 0.0
     log_every: int = 100
     val_every: int = 5000
-    save_every: int = 100
+    save_every: int = 2000
     keep_last: int = 5
     ckpt_dir: str = "./checkpoints"
     tb_dir: str = "./runs"

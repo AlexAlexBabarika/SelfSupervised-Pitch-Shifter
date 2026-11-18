@@ -4,7 +4,6 @@ import re
 import sys
 from dataclasses import asdict
 import torch
-import torch.nn.functional as F
 import wandb
 from pathlib import Path
 from torch.utils.tensorboard.writer import SummaryWriter
@@ -75,6 +74,7 @@ def main():
     writer = SummaryWriter(log_dir=train_config.tb_dir)
 
     step = 0
+    best_val = math.inf
     ckpt = load_latest(Path(train_config.ckpt_dir))
     if ckpt is not None:
         model.load_state_dict(ckpt["model"], strict=False)
@@ -83,6 +83,7 @@ def main():
         ema.shadow = ckpt["ema"]["shadow"]
         ema.step = ckpt["ema"]["step"]
         step = ckpt["step"]
+        best_val = ckpt.get("best_val", math.inf)
         print(f"resumed from step {step}")
 
     if train_config.use_wandb:
@@ -108,6 +109,7 @@ def main():
             mel_tgt = batch["mel_tgt"].to(device, non_blocking=True)
             f0 = batch["f0"].to(device, non_blocking=True)
             shift = batch["shift"].to(device, non_blocking=True)
+            mask = batch["mask"].to(device, non_blocking=True)
 
             # Conditioning dropout: zero the shift and flag those samples via
             # cond_mask so the model can distinguish "dropped" from "shift=0".
@@ -127,7 +129,7 @@ def main():
                     keep,
                     skip_dropout_p=train_config.skip_dropout,
                 )
-                loss, parts = loss_fn(pred, mel_tgt)
+                loss, parts = loss_fn(pred, mel_tgt, mask)
 
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -147,11 +149,13 @@ def main():
                     loss=f"{loss.item():.4f}",
                     l1=f"{parts['l1']:.4f}",
                     mr=f"{parts['mr']:.4f}",
+                    delta=f"{parts['delta']:.4f}",
                     lr=f"{lr:.2e}",
                 )
                 writer.add_scalar("train/loss", loss.item(), step)
                 writer.add_scalar("train/l1", parts["l1"], step)
                 writer.add_scalar("train/mr", parts["mr"], step)
+                writer.add_scalar("train/delta", parts["delta"], step)
                 writer.add_scalar("train/lr", lr, step)
                 writer.add_scalar("train/grad_norm", grad_norm.item(), step)
                 if train_config.use_wandb:
@@ -160,22 +164,26 @@ def main():
                             "train/loss": loss.item(),
                             "train/l1": parts["l1"],
                             "train/mr": parts["mr"],
+                            "train/delta": parts["delta"],
                             "train/lr": lr,
                             "train/grad_norm": grad_norm.item(),
                         },
                         step=step,
                     )
 
-            if step % train_config.save_every == 0:
-                save_ckpt(model, ema, opt, sched, step)
-
             if step % train_config.val_every == 0:
-                validate(model, ema, eval_model, val_loader, step, writer)
+                val_l1 = validate(model, ema, eval_model, val_loader, step, writer)
+                if val_l1 is not None and val_l1 < best_val:
+                    best_val = val_l1
+                    save_ckpt(model, ema, opt, sched, step, best_val, Path("best.pt"))
+
+            if step % train_config.save_every == 0:
+                save_ckpt(model, ema, opt, sched, step, best_val)
 
             if step >= train_config.max_steps:
                 break
 
-    save_ckpt(model, ema, opt, sched, step, final=True)
+    save_ckpt(model, ema, opt, sched, step, best_val, Path("final.pt"))
     pbar.close()
     writer.close()
     if train_config.use_wandb:
@@ -195,18 +203,21 @@ def validate(model, ema, eval_model, loader, step, writer):
         mel_tgt = batch["mel_tgt"].to(device)
         f0 = batch["f0"].to(device)
         shift = batch["shift"].to(device)
+        mask = batch["mask"].to(device)
         cond_mask = torch.ones_like(shift)
         pred = eval_model(mel_in, f0, shift, cond_mask)
-        total += F.l1_loss(pred, mel_tgt).item() * mel_in.size(0)
-        n += mel_in.size(0)
+        total += ((pred - mel_tgt).abs() * mask).sum().item()
+        n += mask.sum().item() * mel_tgt.size(-2)
     if n == 0:
         print(f"\n[val step {step}] empty val set — skipping")
+        return None
     else:
         val_l1 = total / n
         print(f"\n[val step {step}] L1={val_l1:.4f}")
         writer.add_scalar("val/l1", val_l1, step)
         if train_config.use_wandb:
             wandb.log({"val/l1": val_l1}, step=step)
+        return val_l1
 
 
 _STEP_CKPT_RE = re.compile(r"^step_(\d+)\.pt$")
@@ -222,10 +233,10 @@ def _step_ckpts(ckpt_dir: Path):
     return out
 
 
-def save_ckpt(model, ema, opt, sched, step, final=False):
-    if final:
-        path = Path("final.pt")
-    else:
+def save_ckpt(model, ema, opt, sched, step, best_val, path=None):
+    # path=None writes a rolling step checkpoint; best.pt and final.pt pass one.
+    rolling = path is None
+    if rolling:
         ckpt_dir = Path(train_config.ckpt_dir)
         ckpt_dir.mkdir(parents=True, exist_ok=True)
         path = ckpt_dir / f"step_{step}.pt"
@@ -237,12 +248,13 @@ def save_ckpt(model, ema, opt, sched, step, final=False):
             "sched": sched.state_dict(),
             "ema": {"shadow": ema.shadow, "step": ema.step},
             "step": step,
+            "best_val": best_val,
         },
         tmp,
     )
     os.replace(tmp, path)
 
-    if not final:
+    if rolling:
         # Prune oldest step_*.pt so at most `keep_last` remain.
         ckpts = _step_ckpts(ckpt_dir)
         for _, old in ckpts[: -train_config.keep_last]:

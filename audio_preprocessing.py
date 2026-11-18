@@ -204,6 +204,7 @@ def process_and_save(
             mel=mel,
             f0=f0,
             conf=conf,
+            real_len=real_len,
         )
         seconds = real_len / cfg.target_sr
         written += seconds

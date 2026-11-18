@@ -75,6 +75,7 @@ class PitchDataset(Dataset):
             mel_tgt = torch.from_numpy(d["mel"].copy())  # log-mel of the original clip
             f0_raw = d["f0"].copy()  # Hz, aligned to mel frames
             conf = d["conf"].copy()
+            real_len = int(d["real_len"])
 
         if self.is_train:
             semis = random.uniform(-self.perturb_st, self.perturb_st)
@@ -99,10 +100,15 @@ class PitchDataset(Dataset):
             torch.from_numpy(f0_raw), torch.from_numpy(conf), fmax=audio_cfg.fmax
         )  # [2, T]
 
+        # 1 on frames that hold real audio, 0 on the zero-padded tail
+        mask = torch.zeros(1, 1, mel_tgt.shape[-1])
+        mask[..., : 1 + real_len // audio_cfg.hop_length] = 1.0
+
         return {
             "mel_in": mel_in.unsqueeze(0),  # [1, 80, T]
             "mel_tgt": mel_tgt.unsqueeze(0),  # [1, 80, T]
             "f0": f0_feat,  # [2, T]
+            "mask": mask,  # [1, 1, T]
             "shift": torch.tensor(-semis, dtype=torch.float32),
         }
 

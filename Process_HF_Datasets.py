@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,7 @@ def process_nsynth(
     out_dir: Path,
     target_sr: int,
     budget_s: float,
+    group_cap_s: float,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     files = _local_parquet_files(parquet_root, parquet_glob)
@@ -42,18 +44,20 @@ def process_nsynth(
     ds = _stream_parquet(files, target_sr)
 
     budget = {"remaining_s": budget_s}
+    used: dict[str, float] = defaultdict(float)
     pbar = tqdm(total=int(budget_s), unit="s", desc="NSynth")
     # NSynth notes are 4s. Filter for vocal-range pitches (C2..C6).
     for i, ex in enumerate(ds):
         if budget["remaining_s"] <= 0:
             break
         pitch = ex.get("pitch", 60)
-        if pitch < 36 or pitch > 84:
+        inst = ex.get("instrument_str", f"note{i}")
+        if pitch < 36 or pitch > 84 or used[inst] >= group_cap_s:
             continue
         wav = ex["audio"]["array"].astype(np.float32)
         src_sr = ex["audio"]["sampling_rate"]
-        inst = ex.get("instrument_str", f"note{i}")
         sec = process_and_save(wav, src_sr, out_dir, f"n_{inst}__{i:07d}", budget)
+        used[inst] += sec
         pbar.update(sec)
     pbar.close()
 
@@ -64,6 +68,7 @@ def process_vctk(
     out_dir: Path,
     target_sr: int,
     budget_s: float,
+    group_cap_s: float,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     files = _local_parquet_files(parquet_root, parquet_glob)
@@ -73,14 +78,18 @@ def process_vctk(
     ds = _stream_parquet(files, target_sr)
 
     budget = {"remaining_s": budget_s}
+    used: dict[str, float] = defaultdict(float)
     pbar = tqdm(total=int(budget_s), unit="s", desc="VCTK")
     for i, ex in enumerate(ds):
         if budget["remaining_s"] <= 0:
             break
+        spk = ex.get("speaker_id", f"unk_{i}")
+        if used[spk] >= group_cap_s:
+            continue
         wav = ex["audio"]["array"].astype(np.float32)
         src_sr = ex["audio"]["sampling_rate"]
-        spk = ex.get("speaker_id", f"unk_{i}")
         sec = process_and_save(wav, src_sr, out_dir, f"v_{spk}__{i:06d}", budget)
+        used[spk] += sec
         pbar.update(sec)
     pbar.close()
 
@@ -91,6 +100,7 @@ def process_opensinger(
     out_dir: Path,
     target_sr: int,
     budget_s: float,
+    group_cap_s: float,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     files = _local_parquet_files(parquet_root, parquet_glob)
@@ -100,18 +110,22 @@ def process_opensinger(
     ds = _stream_parquet(files, target_sr)
 
     budget = {"remaining_s": budget_s}
+    used: dict[str, float] = defaultdict(float)
     pbar = tqdm(total=int(budget_s), unit="s", desc="VCTK")
     for i, ex in enumerate(ds):
         if budget["remaining_s"] <= 0:
             break
-        wav = ex["audio"]["array"].astype(np.float32)
-        src_sr = ex["audio"]["sampling_rate"]
         # OpenSinger ids are "<singer>_<song>_<n>"
         spk = str(ex.get("id", f"unk{i}")).split("_")[0]
+        if used[spk] >= group_cap_s:
+            continue
+        wav = ex["audio"]["array"].astype(np.float32)
+        src_sr = ex["audio"]["sampling_rate"]
         gender = ex.get("gender", "")
         sec = process_and_save(
             wav, src_sr, out_dir, f"o_{gender}_{spk}__{i:06d}", budget
         )
+        used[spk] += sec
         pbar.update(sec)
     pbar.close()
 
@@ -140,6 +154,7 @@ def main() -> None:
             cache / spec.subdir,
             audio_cfg.target_sr,
             spec.length_hr * 3600.0,
+            data_cfg.max_group_minutes * 60.0,
         )
         _write_index(cache, spec.subdir)
 
