@@ -10,7 +10,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import tqdm
 from config import AudioConfig, DataConfig, ModelConfig, TrainConfig
 from model import PitchUNet, count_params
-from inference.vocoder import HiFiGANVocoder
+from inference.vocoder import load_vocoder
 from losses import TotalLoss, WaveformLoss
 from data import PitchDataset
 
@@ -69,7 +69,7 @@ def main():
     loss_fn = TotalLoss().to(device)
     wave_loss_fn = None
     if train_config.w_wave > 0:
-        vocoder = HiFiGANVocoder(train_config.vocoder_repo, device=torch.device(device))
+        vocoder = load_vocoder(train_config.vocoder_repo, torch.device(device))
         wave_loss_fn = WaveformLoss(
             vocoder.generator,
             vocoder.hop,

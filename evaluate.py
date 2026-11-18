@@ -1,12 +1,18 @@
 import argparse
 import json
 import random
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import librosa
 import numpy as np
+import parselmouth
+import soundfile as sf
 import torch
+from parselmouth.praat import call
 from scipy.fft import dct
 from tqdm import tqdm
 
@@ -16,15 +22,22 @@ from audio_preprocessing import (
     extract_f0,
     world_pitch_shift,
 )
-from config import AudioConfig
+from config import AudioConfig, TrainConfig
 from data import PitchDataset
 from inference.checkpoint import find_ckpt, load_unet
 from inference.pipeline import shift_clip_batch
-from inference.vocoder import HiFiGANVocoder
+from inference.vocoder import load_vocoder
 
 cfg = AudioConfig()
-DEFAULT_VOCODER_REPO = "alexalexbabarika/hifigan-universal-v1"
-SYSTEMS = ["librosa", "world", "world+vocoder", "world+unet+vocoder", "vocoder only"]
+SYSTEMS = [
+    "librosa",
+    "rubberband",
+    "psola",
+    "world",
+    "world+vocoder",
+    "world+unet+vocoder",
+    "vocoder only",
+]
 # Stricter than the training threshold: only score frames CREPE is sure about.
 EVAL_VOICED = 0.5
 GROSS_CENTS = 50.0
@@ -62,6 +75,36 @@ def _mcd(mel_a: np.ndarray, mel_b: np.ndarray, n_coef: int = 13) -> np.ndarray:
     return (10.0 / np.log(10.0)) * np.sqrt(2.0 * ((ca - cb) ** 2).sum(-2))
 
 
+def _fit(x: np.ndarray, n: int) -> np.ndarray:
+    x = x[:n] if x.shape[0] >= n else np.pad(x, (0, n - x.shape[0]))
+    return x.astype(np.float32)
+
+
+def _rubberband(clip: np.ndarray, s: float) -> np.ndarray:
+    # Rubber Band's R3 engine with formant preservation, via its CLI.
+    with tempfile.TemporaryDirectory() as d:
+        src, dst = Path(d) / "in.wav", Path(d) / "out.wav"
+        sf.write(src, clip, cfg.target_sr, subtype="FLOAT")
+        subprocess.run(
+            ["rubberband", "-q", "--fine", "--formant", f"--pitch={s}", src, dst],
+            check=True,
+            capture_output=True,
+        )
+        out, _ = sf.read(dst, dtype="float32")
+    return _fit(out, clip.shape[0])
+
+
+def _psola(clip: np.ndarray, s: float) -> np.ndarray:
+    # Praat's overlap-add (PSOLA) resynthesis with the pitch tier scaled.
+    snd = parselmouth.Sound(clip.astype(np.float64), sampling_frequency=cfg.target_sr)
+    manip = call(snd, "To Manipulation", 0.01, 75, 800)
+    tier = call(manip, "Extract pitch tier")
+    call(tier, "Multiply frequencies", snd.xmin, snd.xmax, 2.0 ** (s / 12.0))
+    call([tier, manip], "Replace pitch tier")
+    out = call(manip, "Get resynthesis (overlap-add)")
+    return _fit(out.values[0], clip.shape[0])
+
+
 def make_systems(unet, vocoder, device):
     def librosa_shift(clips, s):
         return np.stack(
@@ -76,6 +119,8 @@ def make_systems(unet, vocoder, device):
 
     return {
         "librosa": librosa_shift,
+        "rubberband": lambda c, s: np.stack([_rubberband(x, s) for x in c]),
+        "psola": lambda c, s: np.stack([_psola(x, s) for x in c]),
         "world": world,
         "world+vocoder": lambda c, s: shift_clip_batch(c, s, None, vocoder, device),
         "world+unet+vocoder": lambda c, s: shift_clip_batch(
@@ -141,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--shifts", default="-6,-3,-1,1,3,6")
     p.add_argument("--n-clips", type=int, default=200)
     p.add_argument("--batch-size", type=int, default=16)
-    p.add_argument("--vocoder-repo", default=DEFAULT_VOCODER_REPO)
+    p.add_argument("--vocoder-repo", default=TrainConfig().vocoder_repo)
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
     p.add_argument("--out", type=Path, default=Path("eval_results.json"))
     args = p.parse_args(argv)
@@ -152,8 +197,12 @@ def main(argv: list[str] | None = None) -> int:
         print("No checkpoint found and --ckpt not given.", file=sys.stderr)
         return 2
     unet = load_unet(ckpt, device, use_ema=not args.no_ema)
-    vocoder = HiFiGANVocoder(args.vocoder_repo, device=device)
+    vocoder = load_vocoder(args.vocoder_repo, device)
     systems = make_systems(unet, vocoder, device)
+    names = list(SYSTEMS)
+    if shutil.which("rubberband") is None:
+        print("rubberband CLI not found; skipping that baseline.", file=sys.stderr)
+        names.remove("rubberband")
 
     files = []
     for f in PitchDataset("val").files:
@@ -168,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
     shifts = [float(s) for s in args.shifts.split(",")]
     print(f"{len(files)} held-out clips, checkpoint {ckpt}, shifts {shifts}")
 
-    acc = {(name, s): None for name in SYSTEMS for s in shifts}
+    acc = {(name, s): None for name in names for s in shifts}
     for i in tqdm(range(0, len(files), args.batch_size), desc="batches"):
         loaded = [np.load(f) for f in files[i : i + args.batch_size]]
         # the first training-clip's worth of each stored segment
@@ -177,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         f0_src = np.stack([d["f0"][:n_frames] for d in loaded])
         conf_src = np.stack([d["conf"][:n_frames] for d in loaded])
         mel_src = compute_mel_spectrogram(clips)
-        for name in SYSTEMS:
+        for name in names:
             for s in shifts:
                 part = score_batch(clips, f0_src, conf_src, mel_src, s, systems[name])
                 if acc[(name, s)] is None:
@@ -188,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
 
     results = []
     for s in shifts + ["all"]:
-        for name in SYSTEMS:
+        for name in names:
             keys = [(name, x) for x in shifts] if s == "all" else [(name, s)]
             merged = {k: sum((acc[key][k] for key in keys), []) for k in acc[keys[0]]}
             row = summarise(merged)

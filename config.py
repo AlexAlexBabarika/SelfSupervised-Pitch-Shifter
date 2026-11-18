@@ -99,7 +99,7 @@ class TrainConfig:
     w_wave: float = 0.5
     wave_batch: int = 8
     wave_frames: int = 64
-    vocoder_repo: str = "alexalexbabarika/hifigan-universal-v1"
+    vocoder_repo: str = "nvidia/bigvgan_base_22khz_80band"
     use_wandb: bool = False
     wandb_project: str = "pitch-shifter"
     wandb_run_name: str | None = None

@@ -2,7 +2,7 @@
 
 A neural pitch shifter for vocals. A formant-preserving WORLD shift moves the
 pitch, a conditional U-Net then predicts the clean mel-spectrogram of the shifted
-signal, and a HiFi-GAN vocoder resynthesizes the audio.
+signal, and a BigVGAN vocoder resynthesizes the audio.
 For full songs it separates stems with Demucs, shifts only the vocals, and remixes.
 
 ## How it works
@@ -17,7 +17,7 @@ song.wav
                        │          │                 │
                        │          │          PitchUNet (mel → mel)
                        │          │                 │
-                       │          │          HiFi-GAN (mel → audio)
+                       │          │          BigVGAN (mel → audio)
                        │          │                 │
                        │          │          + band above 8 kHz from a
                        │          │            44.1 kHz WORLD shift
@@ -45,7 +45,7 @@ its input mel and the output head is zero-initialized, so training starts from t
 identity (i.e. from the quality of the WORLD shift).
 
 Training (`train.py`) uses an L1 + multi-resolution + difference loss on the mel and
-a multi-resolution STFT loss on audio rendered through the frozen HiFi-GAN
+a multi-resolution STFT loss on audio rendered through the frozen vocoder
 (`losses.py`; set `w_wave = 0` to turn the latter off), AdamW
 with cosine decay and warmup, EMA weights, gradient clipping, and bf16 autocast on
 CUDA. The input mel comes from a WORLD round trip (shift by `+s`, then back by
@@ -72,7 +72,7 @@ the model and the side channel gets a plain phase-vocoder shift.
 | `losses.py` | Mel losses and the waveform loss through the frozen vocoder |
 | `train.py` | Training loop, EMA, checkpointing, TensorBoard / W&B logging |
 | `inference.py` | CLI entrypoint: separate → shift → remix |
-| `inference/` | Demucs separation, HiFi-GAN vocoder, overlap-add stitching, pipeline |
+| `inference/` | Demucs separation, vocoders (BigVGAN, HiFi-GAN), stitching, pipeline |
 
 ## Setup
 
@@ -106,8 +106,8 @@ Useful flags:
 - `--ckpt` — PitchUNet checkpoint (default: `./best.pt`, else `./final.pt`, else latest
   `./checkpoints/step_*.pt`)
 - `--no-ema` — use raw weights instead of the EMA shadow
-- `--vocoder-repo` — HF repo hosting the HiFi-GAN UNIVERSAL_V1 generator
-  (default: `alexalexbabarika/hifigan-universal-v1`)
+- `--vocoder-repo` — HF repo of the vocoder; BigVGAN and HiFi-GAN repos both work
+  (default: `TrainConfig.vocoder_repo`, the one the model was trained against)
 - `--device` — `auto` | `cuda` | `mps` | `cpu`
 - `-v, --verbose` — progress output
 
@@ -141,8 +141,9 @@ to `./runs/` (TensorBoard) and optionally Weights & Biases.
 uv run evaluate.py            # uses ./best.pt and the held-out validation clips
 ```
 
-Scores the full system against `librosa`, WORLD alone, WORLD + vocoder (no U-Net)
-and the vocoder alone, per shift size. A single shift has no ground truth, so it is
+Scores the full system against `librosa`, Rubber Band (if the `rubberband` CLI is
+installed), PSOLA (Praat), WORLD alone, WORLD + vocoder (no U-Net) and the vocoder
+alone, per shift size. A single shift has no ground truth, so it is
 scored on pitch accuracy (CREPE F0 against the source F0 scaled by the shift), on
 how many voiced frames survive, and on how far the spectral envelope moved from the
 source. A round trip (`+s` then `-s`) is compared with the original clip by log-mel
@@ -156,5 +157,6 @@ L1 and mel-cepstral distortion. Results are printed as a table and written to
   stereo, and inference output is 44.1 kHz.
 - The cache holds segments of up to 5.12 s; each training step crops a 2.56 s clip
   at a random offset.
-- The bundled HiFi-GAN code (`inference/hifigan/`) is the standard UNIVERSAL_V1
-  generator; weights are fetched from the Hub at inference time.
+- The default vocoder is BigVGAN base (22 kHz, 80 bands); its code is vendored in
+  `inference/bigvgan/` (MIT, NVIDIA). The HiFi-GAN UNIVERSAL_V1 generator in
+  `inference/hifigan/` is still supported. Weights are fetched from the Hub.

@@ -15,7 +15,7 @@ from audio_preprocessing import (
 )
 from config import AudioConfig
 from inference.stitch import overlap_add
-from inference.vocoder import HiFiGANVocoder
+from inference.vocoder import Vocoder
 from model import PitchUNet
 
 
@@ -23,7 +23,7 @@ def shift_clip_batch(
     batch_np: np.ndarray,
     semis: float,
     unet: PitchUNet | None,
-    vocoder: HiFiGANVocoder,
+    vocoder: Vocoder,
     device: torch.device,
 ) -> np.ndarray:
     # batch_np: [B, clip_len] @ AudioConfig.target_sr, loudness-normalised.
@@ -128,7 +128,7 @@ def shift_audio_through_model(
     sr: int,
     semis: float,
     unet: PitchUNet,
-    vocoder: HiFiGANVocoder,
+    vocoder: Vocoder,
     device: torch.device,
     batch_size: int = 8,
     overlap: float = 0.25,

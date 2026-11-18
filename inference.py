@@ -16,7 +16,6 @@ from inference.checkpoint import find_ckpt, load_unet
 
 
 DEMUCS_SR = 44100
-DEFAULT_VOCODER_REPO = "alexalexbabarika/hifigan-universal-v1"
 
 
 def _resolve_device(arg: str) -> torch.device:
@@ -97,8 +96,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument(
         "--vocoder-repo",
-        default=DEFAULT_VOCODER_REPO,
-        help="HF repo id hosting HiFi-GAN UNIVERSAL_V1.",
+        default=TrainConfig().vocoder_repo,
+        help="HF repo id of the vocoder (HiFi-GAN or BigVGAN). Should be the "
+        "one the model was trained against.",
     )
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
     p.add_argument(
@@ -137,11 +137,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # Local imports keep cold startup snappy if -h is the only ask.
     from inference.pipeline import shift_audio_through_model
-    from inference.vocoder import HiFiGANVocoder
+    from inference.vocoder import load_vocoder
 
     if args.verbose:
         print(f"Loading vocoder from {args.vocoder_repo}")
-    vocoder = HiFiGANVocoder(args.vocoder_repo, device=device)
+    vocoder = load_vocoder(args.vocoder_repo, device)
 
     default_name = _default_output(args.input, args.semitones).name
     if args.output is None:
