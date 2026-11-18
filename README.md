@@ -111,7 +111,8 @@ uv run train.py
 ```
 
 Datasets, the per-dataset hour budget, and the train/val split are configured in
-`DataConfig`. Out of the box it mixes NSynth (vocal-range notes only), VCTK
+`DataConfig`. Validation holds out whole speakers, singers and instruments, so
+the split is at least `val_split` of each dataset rather than exactly that. Out of the box it mixes NSynth (vocal-range notes only), VCTK
 speech, and OpenSinger (male/female). Checkpoints land in `./checkpoints/`
 (pruned to the last few), with `final.pt` written at the end of training; logs go
 to `./runs/` (TensorBoard) and optionally Weights & Biases.

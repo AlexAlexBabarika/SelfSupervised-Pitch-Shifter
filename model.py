@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from kernels import get_kernel
-from config import ModelConfig
+from config import ModelConfig, TrainConfig
 
 activation = get_kernel("kernels-community/activation")
 
@@ -32,10 +32,11 @@ class ShiftEncoder(nn.Module):
         self.encoder = nn.Sequential(
             nn.Linear(2, out_dim), activation.layers.Silu(), nn.Linear(out_dim, out_dim)
         )
+        self.shift_scale = float(TrainConfig().perturb_st)
 
     def forward(self, shift: torch.Tensor, cond_mask: torch.Tensor):
         # shift, cond_mask: [B]; cond_mask=1 when conditioning is present, 0 when dropped
-        x = torch.stack([shift, cond_mask], dim=-1)
+        x = torch.stack([shift / self.shift_scale, cond_mask], dim=-1)
         return self.encoder(x)
 
 

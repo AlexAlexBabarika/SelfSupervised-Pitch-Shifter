@@ -52,7 +52,8 @@ def process_nsynth(
             continue
         wav = ex["audio"]["array"].astype(np.float32)
         src_sr = ex["audio"]["sampling_rate"]
-        sec = process_and_save(wav, src_sr, out_dir, f"n_{i:07d}", budget)
+        inst = ex.get("instrument_str", f"note{i}")
+        sec = process_and_save(wav, src_sr, out_dir, f"n_{inst}__{i:07d}", budget)
         pbar.update(sec)
     pbar.close()
 
@@ -79,7 +80,7 @@ def process_vctk(
         wav = ex["audio"]["array"].astype(np.float32)
         src_sr = ex["audio"]["sampling_rate"]
         spk = ex.get("speaker_id", f"unk_{i}")
-        sec = process_and_save(wav, src_sr, out_dir, f"v_{spk}_{i:06d}", budget)
+        sec = process_and_save(wav, src_sr, out_dir, f"v_{spk}__{i:06d}", budget)
         pbar.update(sec)
     pbar.close()
 
@@ -105,10 +106,11 @@ def process_opensinger(
             break
         wav = ex["audio"]["array"].astype(np.float32)
         src_sr = ex["audio"]["sampling_rate"]
-        spk = ex.get("id", f"unk_{i}")
+        # OpenSinger ids are "<singer>_<song>_<n>"
+        spk = str(ex.get("id", f"unk{i}")).split("_")[0]
         gender = ex.get("gender", "")
         sec = process_and_save(
-            wav, src_sr, out_dir, f"o_{gender}_{spk}_{i:06d}", budget
+            wav, src_sr, out_dir, f"o_{gender}_{spk}__{i:06d}", budget
         )
         pbar.update(sec)
     pbar.close()

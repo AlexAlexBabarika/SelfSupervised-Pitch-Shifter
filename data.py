@@ -34,21 +34,35 @@ def _audio_to_log_mel(audio: np.ndarray) -> torch.Tensor:
     return torch.log(m.clamp(min=1e-5))
 
 
+def _split_by_group(files: List[str], val_split: float):
+    # Clip names are "<group>__<rest>.npz", group being the speaker, singer or
+    # instrument. Whole groups go to val so no voice is on both sides.
+    groups: dict[str, List[str]] = {}
+    for f in files:
+        name = Path(f).name
+        assert "__" in name, f"{name} has no group prefix; rerun Process_HF_Datasets.py"
+        groups.setdefault(name.split("__")[0], []).append(f)
+    assert len(groups) > 1, f"need at least 2 groups to split, got {list(groups)}"
+    keys = sorted(groups)
+    random.Random(0).shuffle(keys)
+    val: List[str] = []
+    while len(val) < len(files) * val_split and len(keys) > 1:
+        val.extend(groups[keys.pop()])
+    return [f for k in keys for f in groups[k]], val
+
+
 class PitchDataset(Dataset):
     def __init__(
         self,
         split: str = "train",
         dataset_keys: List[str] = data_cfg.datasets_to_load,
     ):
-        files = []
+        self.files = []
         for key in dataset_keys:
             spec = data_cfg.datasets[key]
             with open(Path(data_cfg.cache_dir) / f"{spec.subdir}_index.json") as f:
-                files.extend(json.load(f))
-
-        random.Random(0).shuffle(files)
-        n_val = int(len(files) * data_cfg.val_split)
-        self.files = files[n_val:] if split == "train" else files[:n_val]
+                train, val = _split_by_group(json.load(f), data_cfg.val_split)
+            self.files.extend(train if split == "train" else val)
         self.perturb_st = train_cfg.perturb_st
         self.is_train = split == "train"
 

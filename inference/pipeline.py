@@ -6,6 +6,7 @@ from audio_preprocessing import (
     compute_mel_spectrogram,
     extract_f0,
     f0_to_feature,
+    normalization_gain,
     world_pitch_shift,
 )
 from config import AudioConfig
@@ -34,6 +35,11 @@ def shift_audio_through_model(
     n = int(mono_audio.shape[-1])
     if n <= 0:
         return np.zeros(0, dtype=np.float32)
+
+    # Training clips are loudness-normalised; match that here and undo it on
+    # the way out.
+    gain = normalization_gain(mono_audio)
+    mono_audio = mono_audio * gain
 
     starts = list(range(0, n, hop)) or [0]
     clips = np.zeros((len(starts), clip_len), dtype=np.float32)
@@ -103,4 +109,4 @@ def shift_audio_through_model(
         stitched = stitched[:n]
     else:
         stitched = np.pad(stitched, (0, n - stitched.shape[0]))
-    return stitched.astype(np.float32)
+    return (stitched / gain).astype(np.float32)

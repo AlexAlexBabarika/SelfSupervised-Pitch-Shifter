@@ -15,7 +15,13 @@ cfg = AudioConfig()
 SUPPORTED_SRS = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000]
 CREPE_MODEL_CAPACITIES = ["tiny", "full"]
 CLIP_LEN = int(cfg.clip_seconds * cfg.target_sr)
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
 
 meter = pyloudnorm.Meter(rate=cfg.target_sr)
 MEL_TRANSFORM = torchaudio.transforms.MelSpectrogram(
@@ -48,17 +54,22 @@ def resample_audio_to_target_sr(
     return librosa.resample(audio, orig_sr=original_sr, target_sr=cfg.target_sr)
 
 
-def normalize_audio(audio: np.ndarray) -> np.ndarray:
+def normalization_gain(audio: np.ndarray) -> float:
+    gain = 1.0
     try:
         loud = meter.integrated_loudness(audio)
         if math.isfinite(loud):
-            audio = pyloudnorm.normalize.loudness(audio, loud, cfg.target_lufs)
+            gain = 10.0 ** ((cfg.target_lufs - loud) / 20.0)
     except Exception:
         pass
-    peak = np.max(np.abs(audio)) + 1e-9
+    peak = float(np.max(np.abs(audio))) * gain + 1e-9
     if peak > 0.99:
-        audio = audio * (0.99 / peak)
-    return audio.astype(np.float32)
+        gain *= 0.99 / peak
+    return gain
+
+
+def normalize_audio(audio: np.ndarray) -> np.ndarray:
+    return (audio * normalization_gain(audio)).astype(np.float32)
 
 
 def segment_audio(audio: np.ndarray) -> Generator[tuple[np.ndarray, int]]:
@@ -86,7 +97,7 @@ def f0_to_feature(
 ) -> torch.Tensor:
     # f0_hz, conf: [..., T]. Returns [..., 2, T] = (log2(f0+1), voiced_mask)
     # with voicing dropped when the fundamental leaves the analysable band.
-    voiced = (conf > 0.5).to(f0_hz.dtype)
+    voiced = (conf > cfg.voiced_threshold).to(f0_hz.dtype)
     in_range = (f0_hz < (fmax / 2.0)).to(f0_hz.dtype)
     voiced = voiced * in_range
     f0_norm = torch.log2(f0_hz.clamp(min=0.0) + 1.0)
@@ -99,7 +110,7 @@ def world_pitch_shift(
     # audio: [samples], f0_hz/conf: [T] aligned to mel frames. WORLD resynthesis
     # with the F0 track scaled and the spectral envelope kept, so formants stay put.
     x = np.ascontiguousarray(audio, dtype=np.float64)
-    f0 = np.where(conf > 0.5, f0_hz, 0.0).astype(np.float64)
+    f0 = np.where(conf > cfg.voiced_threshold, f0_hz, 0.0).astype(np.float64)
     t = np.arange(len(f0), dtype=np.float64) * cfg.hop_length / cfg.target_sr
     sp = pyworld.cheaptrick(x, f0, t, cfg.target_sr)
     ap = pyworld.d4c(x, f0, t, cfg.target_sr)
@@ -132,11 +143,13 @@ def extract_f0(clips: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         sample_rate=16000,
         hop_length=hop,
         model=cfg.crepe_model_capacity,
-        batch_size=2048,
+        batch_size=512,
         device=DEVICE,
         decoder=torchcrepe.decode.argmax,
         return_periodicity=True,
     )
+    pitch = torchcrepe.filter.median(pitch, 3)
+    periodicity = torchcrepe.filter.median(periodicity, 3)
 
     return pitch.cpu().numpy().astype(np.float32), periodicity.cpu().numpy().astype(
         np.float32

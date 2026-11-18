@@ -10,7 +10,8 @@ class AudioConfig:
     n_mels: int = 80
     win_length: int = 1024
     clip_seconds: float = 2.56
-    crepe_model_capacity: str = "tiny"
+    crepe_model_capacity: str = "full"
+    voiced_threshold: float = 0.3
     fmin: int = 0
     fmax: int = 8000
 
@@ -73,7 +74,7 @@ class DataConfig:
 
 @dataclass
 class TrainConfig:
-    perturb_st: int = 2
+    perturb_st: int = 6
     batch_size: int = 32
     num_workers: int = 6
     warmup_steps: int = 1000
