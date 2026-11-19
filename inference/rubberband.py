@@ -25,6 +25,10 @@ def _run(audio: np.ndarray, sr: int, semis: float, formant: bool) -> np.ndarray:
         cmd = ["rubberband", "-q", "--fine", f"--pitch={semis}", src, dst]
         if formant:
             cmd.insert(3, "--formant")
+        if audio.ndim == 2 and audio.shape[0] == 2:
+            # Without this the channels drift out of phase: the centre loses
+            # level and the sides nearly double.
+            cmd.insert(3, "--centre-focus")
         subprocess.run(cmd, check=True, capture_output=True)
         out, _ = sf.read(dst, dtype="float32")
     out = out.T
@@ -39,8 +43,8 @@ def rubberband_shift(
     audio: np.ndarray, sr: int, semis: float, formant_semis: float = 0.0
 ) -> np.ndarray:
     # Moves the pitch by `semis` and the formants by `formant_semis`: one pass
-    # moves both together, a second moves the pitch alone. Channels are
-    # processed together, so the stereo image is kept.
+    # moves both together, a second moves the pitch alone. Stereo input
+    # keeps its image and its mono compatibility; the level is kept too.
     if shutil.which("rubberband") is None:
         raise RuntimeError(
             "The `rubberband` command-line tool is required "
@@ -48,4 +52,10 @@ def rubberband_shift(
         )
     audio = audio.astype(np.float32, copy=False)
     both = _run(audio, sr, formant_semis, formant=False)
-    return _run(both, sr, semis - formant_semis, formant=True)
+    out = _run(both, sr, semis - formant_semis, formant=True)
+    # Formant preservation changes the level by a couple of dB; put it back
+    # so the vocal keeps its place in the mix.
+    rms_in, rms_out = np.sqrt((audio**2).mean()), np.sqrt((out**2).mean())
+    if rms_out > 1e-8:
+        out = out * (rms_in / rms_out)
+    return out.astype(np.float32)
