@@ -170,8 +170,9 @@ Copy `best.pt` off the machine before destroying the instance.
 
 Datasets, the per-dataset hour budget, and the train/val split are configured in
 `DataConfig`. Validation holds out whole speakers, singers and instruments, so
-the split is at least `val_split` of each dataset rather than exactly that. Out of the box it mixes VCTK speech and OpenSinger (male/female);
-NSynth is still defined but no longer loaded. Checkpoints land in `./checkpoints/`
+the split is at least `val_split` of each dataset rather than exactly that. Out of the box it mixes VCTK speech (up to 10 h, 5 minutes per speaker) and OpenSinger
+(male/female); training draws the three sets equally often, so two thirds of each
+batch is singing. NSynth is still defined but no longer loaded. Checkpoints land in `./checkpoints/`
 (pruned to the last few), with `best.pt` written whenever validation improves and
 `final.pt` at the end of training; logs go
 to `./runs/` (TensorBoard) and optionally Weights & Biases.

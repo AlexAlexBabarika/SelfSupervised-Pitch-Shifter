@@ -84,7 +84,8 @@ def process_vctk(
         if budget["remaining_s"] <= 0:
             break
         spk = ex.get("speaker_id", f"unk_{i}")
-        if used[spk] >= group_cap_s:
+        # Every utterance is in the set twice, once per microphone.
+        if used[spk] >= group_cap_s or "_mic2" in str(ex.get("file", "")):
             continue
         wav = ex["audio"]["array"].astype(np.float32)
         src_sr = ex["audio"]["sampling_rate"]

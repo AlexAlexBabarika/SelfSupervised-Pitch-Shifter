@@ -42,7 +42,7 @@ class DataConfig:
             "vctk": DatasetSpec(
                 hf_name="sanchit-gandhi/vctk",
                 subdir="vctk",
-                length_hr=3,
+                length_hr=10,
                 parquet_glob="data/train-*.parquet",
             ),
             "opensinger_female": DatasetSpec(

@@ -5,7 +5,7 @@ import torch
 import torchaudio
 from typing import List
 from pathlib import Path
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from config import DataConfig, TrainConfig, AudioConfig
 from audio_preprocessing import CLIP_LEN, f0_to_feature, world_pitch_shift
 
@@ -58,11 +58,17 @@ class PitchDataset(Dataset):
         dataset_keys: List[str] = data_cfg.datasets_to_load,
     ):
         self.files = []
+        # 1 / (segments in the file's dataset): sampling with these weights
+        # draws every dataset equally often, so the larger speech set does
+        # not crowd out the singing.
+        self.weights: List[float] = []
         for key in dataset_keys:
             spec = data_cfg.datasets[key]
             with open(Path(data_cfg.cache_dir) / f"{spec.subdir}_index.json") as f:
                 train, val = _split_by_group(json.load(f), data_cfg.val_split)
-            self.files.extend(train if split == "train" else val)
+            part = train if split == "train" else val
+            self.files.extend(part)
+            self.weights.extend([1.0 / max(1, len(part))] * len(part))
         self.perturb_st = train_cfg.perturb_st
         self.is_train = split == "train"
 
@@ -131,10 +137,13 @@ class PitchDataset(Dataset):
         if num_workers is None:
             num_workers = train_cfg.num_workers
         nw = num_workers if is_train else min(4, num_workers)
+        sampler = None
+        if is_train:
+            sampler = WeightedRandomSampler(ds.weights, len(ds), replacement=True)
         return DataLoader(
             ds,
             batch_size=batch_size or train_cfg.batch_size,
-            shuffle=is_train,
+            sampler=sampler,
             num_workers=nw,
             pin_memory=True,
             drop_last=is_train,
