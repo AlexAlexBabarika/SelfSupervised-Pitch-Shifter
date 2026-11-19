@@ -1,7 +1,6 @@
 import argparse
 import json
 import random
-import shutil
 import sys
 from pathlib import Path
 
@@ -189,8 +188,11 @@ def main(argv: list[str] | None = None) -> int:
     vocoder = load_vocoder(args.vocoder_repo, device)
     systems = make_systems(unet, vocoder, device)
     names = list(SYSTEMS)
-    if shutil.which("rubberband") is None:
-        print("rubberband CLI not found; skipping that baseline.", file=sys.stderr)
+    try:
+        # Also catches builds older than v3, which lack the R3 engine.
+        _rubberband(np.zeros(cfg.target_sr, dtype=np.float32), 1.0)
+    except Exception as e:
+        print(f"Rubber Band baseline unavailable ({e}); skipping it.", file=sys.stderr)
         names.remove("rubberband")
 
     files = []

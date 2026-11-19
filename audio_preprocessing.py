@@ -27,19 +27,28 @@ DEVICE = (
 )
 
 meter = pyloudnorm.Meter(rate=cfg.target_sr)
-MEL_TRANSFORM = torchaudio.transforms.MelSpectrogram(
-    sample_rate=cfg.target_sr,
-    n_fft=cfg.n_fft,
-    hop_length=cfg.hop_length,
-    win_length=cfg.win_length,
-    n_mels=cfg.n_mels,
-    f_min=cfg.fmin,
-    f_max=cfg.fmax,
-    power=1.0,
-    center=True,
-    norm="slaney",
-    mel_scale="slaney",
-).to(DEVICE)
+_MEL_TRANSFORM = None
+
+
+def _mel_transform() -> torchaudio.transforms.MelSpectrogram:
+    # Built on first use: data-loader workers import this module, and a
+    # module-level .to("cuda") would open a CUDA context in every one of them.
+    global _MEL_TRANSFORM
+    if _MEL_TRANSFORM is None:
+        _MEL_TRANSFORM = torchaudio.transforms.MelSpectrogram(
+            sample_rate=cfg.target_sr,
+            n_fft=cfg.n_fft,
+            hop_length=cfg.hop_length,
+            win_length=cfg.win_length,
+            n_mels=cfg.n_mels,
+            f_min=cfg.fmin,
+            f_max=cfg.fmax,
+            power=1.0,
+            center=True,
+            norm="slaney",
+            mel_scale="slaney",
+        ).to(DEVICE)
+    return _MEL_TRANSFORM
 
 
 def load_audio_file(file_path: str) -> tuple[np.ndarray, int | float]:
@@ -89,7 +98,7 @@ def segment_audio(audio: np.ndarray) -> Generator[tuple[np.ndarray, int]]:
 
 def compute_mel_spectrogram(clips: np.ndarray) -> np.ndarray:
     t = torch.from_numpy(clips).float().to(DEVICE)
-    m = MEL_TRANSFORM(t).cpu().numpy()
+    m = _mel_transform()(t).cpu().numpy()
     return np.log(np.maximum(m, 1e-5)).astype(np.float32)
 
 

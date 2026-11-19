@@ -1,3 +1,4 @@
+import argparse
 import math
 import os
 import re
@@ -14,8 +15,16 @@ from inference.vocoder import load_vocoder
 from losses import TotalLoss, WaveformLoss
 from data import PitchDataset
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
 train_config = TrainConfig()
+# Where checkpoints/, runs/, best.pt and final.pt go; set by --out-dir.
+out_dir = Path(".")
 
 
 class EMA:
@@ -54,7 +63,33 @@ def lr_lambda(step):
     return 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * min(progress, 1.0)))
 
 
-def main():
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(description="Train PitchUNet.")
+    p.add_argument("--max-steps", type=int, default=None)
+    p.add_argument("--val-every", type=int, default=None)
+    p.add_argument("--save-every", type=int, default=None)
+    p.add_argument("--batch-size", type=int, default=None)
+    p.add_argument("--num-workers", type=int, default=None)
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        default=Path("."),
+        help="Directory for checkpoints/, runs/, best.pt and final.pt.",
+    )
+    return p.parse_args(argv)
+
+
+def main(argv=None):
+    global out_dir
+    args = parse_args(argv)
+    for name in ("max_steps", "val_every", "save_every", "batch_size", "num_workers"):
+        if getattr(args, name) is not None:
+            setattr(train_config, name, getattr(args, name))
+    out_dir = args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    train_config.ckpt_dir = str(out_dir / train_config.ckpt_dir)
+    train_config.tb_dir = str(out_dir / train_config.tb_dir)
+
     model = PitchUNet().to(device)
     eval_model = PitchUNet().to(device)
     print(f"Model: {count_params(model) / 1e6:.2f} M params")
@@ -78,8 +113,13 @@ def main():
         ).to(device)
     ema = EMA(model, decay=train_config.ema_decay)
 
-    train_loader = PitchDataset.make_loader("train")
-    val_loader = PitchDataset.make_loader("val")
+    loader_args = (train_config.batch_size, train_config.num_workers)
+    train_loader = PitchDataset.make_loader("train", *loader_args)
+    val_loader = PitchDataset.make_loader("val", *loader_args)
+    print(
+        f"{len(train_loader.dataset)} train / {len(val_loader.dataset)} val segments, "
+        f"{len(train_loader)} steps per epoch, {train_config.max_steps} steps"
+    )
 
     writer = SummaryWriter(log_dir=train_config.tb_dir)
 
@@ -193,7 +233,9 @@ def main():
                 val_l1 = validate(model, ema, eval_model, val_loader, step, writer)
                 if val_l1 is not None and val_l1 < best_val:
                     best_val = val_l1
-                    save_ckpt(model, ema, opt, sched, step, best_val, Path("best.pt"))
+                    save_ckpt(
+                        model, ema, opt, sched, step, best_val, out_dir / "best.pt"
+                    )
 
             if step % train_config.save_every == 0:
                 save_ckpt(model, ema, opt, sched, step, best_val)
@@ -201,7 +243,7 @@ def main():
             if step >= train_config.max_steps:
                 break
 
-    save_ckpt(model, ema, opt, sched, step, best_val, Path("final.pt"))
+    save_ckpt(model, ema, opt, sched, step, best_val, out_dir / "final.pt")
     pbar.close()
     writer.close()
     if train_config.use_wandb:
@@ -280,7 +322,7 @@ def save_ckpt(model, ema, opt, sched, step, best_val, path=None):
 
 
 def load_latest(ckpt_dir: Path):
-    final = Path("final.pt")
+    final = out_dir / "final.pt"
     if final.exists():
         print(
             f"{final} exists — training already complete. "

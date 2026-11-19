@@ -81,7 +81,7 @@ class TrainConfig:
     batch_size: int = 32
     num_workers: int = 6
     warmup_steps: int = 1000
-    max_steps: int = 200000
+    max_steps: int = 60000
     lr: float = 2.0e-4
     weight_decay: float = 0.01
     betas = (0.8, 0.99)
@@ -90,7 +90,7 @@ class TrainConfig:
     cond_dropout: float = 0.0
     skip_dropout: float = 0.0
     log_every: int = 100
-    val_every: int = 5000
+    val_every: int = 2000
     save_every: int = 2000
     keep_last: int = 5
     ckpt_dir: str = "./checkpoints"
