@@ -1,11 +1,17 @@
 # pitch-shifter
 
-A neural pitch shifter for vocals. A formant-preserving WORLD shift moves the
-pitch, a conditional U-Net then predicts the clean mel-spectrogram of the shifted
-signal, and a BigVGAN vocoder resynthesizes the audio.
-For full songs it separates stems with Demucs, shifts only the vocals, and remixes.
+A pitch shifter for the vocals of a song. It separates stems with Demucs, shifts
+only the vocals, and remixes. There are two shifting engines:
 
-## How it works
+- **`rubberband`** (default): [Rubber Band](https://breakfastquay.com/rubberband/)
+  with control over how far the formants follow the pitch. In `evaluate.py` and in
+  listening comparisons it beat WORLD, which sounded metallic with or without the
+  vocoder; the U-Net had not been retrained when that comparison was made.
+- **`model`** (experimental): a formant-preserving WORLD shift moves the pitch, a
+  conditional U-Net predicts the clean mel-spectrogram of the shifted signal, and a
+  BigVGAN vocoder resynthesizes the audio. It needs a trained checkpoint.
+
+## How the model engine works
 
 ```
 song.wav
@@ -97,12 +103,22 @@ Shift a song down two semitones (separates stems, shifts vocals, remixes):
 uv run inference.py path/to/song.wav -s -2
 ```
 
+The default engine needs the `rubberband` command-line tool
+(`brew install rubberband` on macOS, `apt install rubberband-cli` on Debian/Ubuntu).
+
 Useful flags:
 
 - `-s, --semitones` — shift amount; positive = up, negative = down (required)
 - `-o, --output` — output path (default: `<input>_shifted_<+N>st.wav` next to input)
-- `--no-separate` — skip Demucs; for solo vocal recordings only, since the shifter
-  models a single voice and will not work on a full mix
+- `--engine` — `rubberband` (default) or `model`
+- `--formant-shift` — semitones the formants move, `rubberband` engine only. The
+  default keeps them fixed when shifting down and lets them follow a quarter of the
+  way when shifting up, as a real voice does; `0` is full formant preservation
+- `--no-separate` — skip Demucs and shift the input as it is; meant for solo vocal
+  recordings (the `model` engine only handles a single voice)
+
+Flags for the `model` engine:
+
 - `--ckpt` — PitchUNet checkpoint (default: `./best.pt`, else `./final.pt`, else latest
   `./checkpoints/step_*.pt`)
 - `--no-ema` — use raw weights instead of the EMA shadow

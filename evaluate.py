@@ -2,15 +2,12 @@ import argparse
 import json
 import random
 import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import librosa
 import numpy as np
 import parselmouth
-import soundfile as sf
 import torch
 from parselmouth.praat import call
 from scipy.fft import dct
@@ -26,6 +23,7 @@ from config import AudioConfig, TrainConfig
 from data import PitchDataset
 from inference.checkpoint import find_ckpt, load_unet
 from inference.pipeline import shift_clip_batch
+from inference.rubberband import rubberband_shift
 from inference.vocoder import load_vocoder
 
 cfg = AudioConfig()
@@ -81,17 +79,8 @@ def _fit(x: np.ndarray, n: int) -> np.ndarray:
 
 
 def _rubberband(clip: np.ndarray, s: float) -> np.ndarray:
-    # Rubber Band's R3 engine with formant preservation, via its CLI.
-    with tempfile.TemporaryDirectory() as d:
-        src, dst = Path(d) / "in.wav", Path(d) / "out.wav"
-        sf.write(src, clip, cfg.target_sr, subtype="FLOAT")
-        subprocess.run(
-            ["rubberband", "-q", "--fine", "--formant", f"--pitch={s}", src, dst],
-            check=True,
-            capture_output=True,
-        )
-        out, _ = sf.read(dst, dtype="float32")
-    return _fit(out, clip.shape[0])
+    # Rubber Band's R3 engine with full formant preservation.
+    return rubberband_shift(clip, cfg.target_sr, s)
 
 
 def _psola(clip: np.ndarray, s: float) -> np.ndarray:

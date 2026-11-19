@@ -13,6 +13,7 @@ import torchaudio
 
 from config import TrainConfig
 from inference.checkpoint import find_ckpt, load_unet
+from inference.rubberband import default_formant_shift, rubberband_shift
 
 
 DEMUCS_SR = 44100
@@ -59,7 +60,7 @@ def _write_wav(path: Path, audio: np.ndarray, sr: int) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Pitch-shift a song through PitchUNet + HiFi-GAN."
+        description="Pitch-shift the vocals of a song and remix it."
     )
     p.add_argument("input", type=Path, help="Input audio file (wav/mp3/flac/...).")
     p.add_argument(
@@ -77,10 +78,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Output wav path. Default: <input_stem>_shifted_<+N>st.wav next to input.",
     )
     p.add_argument(
+        "--engine",
+        default="rubberband",
+        choices=["rubberband", "model"],
+        help="rubberband: Rubber Band with formant control (default, needs the "
+        "`rubberband` CLI). model: WORLD + PitchUNet + vocoder (needs a "
+        "trained checkpoint).",
+    )
+    p.add_argument(
+        "--formant-shift",
+        type=float,
+        default=None,
+        help="Semitones the formants move (rubberband engine). Default: a "
+        "quarter of the shift when going up, 0 when going down.",
+    )
+    p.add_argument(
         "--no-separate",
         action="store_true",
-        help="Skip Demucs. For solo vocal recordings only: the shifter models "
-        "a single voice and will not work on a full mix.",
+        help="Skip Demucs and shift the input as it is. Meant for solo vocal "
+        "recordings; the model engine only handles a single voice.",
     )
     p.add_argument(
         "--ckpt",
@@ -114,34 +130,73 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Input not found: {args.input}", file=sys.stderr)
         return 2
 
-    max_shift = TrainConfig().perturb_st
-    if abs(args.semitones) > max_shift:
-        print(
-            f"Warning: the model was trained on shifts up to ±{max_shift} semitones; "
-            f"{args.semitones:+g} is outside that range.",
-            file=sys.stderr,
-        )
-
     device = _resolve_device(args.device)
+    formant = args.formant_shift
+    if formant is None:
+        formant = default_formant_shift(args.semitones)
 
-    ckpt = args.ckpt or find_ckpt(Path("./checkpoints"))
-    if ckpt is None:
-        print(
-            "No checkpoint found in ./checkpoints/ and --ckpt not given.",
-            file=sys.stderr,
-        )
-        return 2
-    if args.verbose:
-        print(f"Loading PitchUNet from {ckpt}")
-    unet = load_unet(ckpt, device, use_ema=not args.no_ema)
+    if args.engine == "rubberband":
+        if args.verbose:
+            print(f"Engine: Rubber Band, formants {formant:+g} semitones")
 
-    # Local imports keep cold startup snappy if -h is the only ask.
-    from inference.pipeline import shift_audio_through_model
-    from inference.vocoder import load_vocoder
+        def shift(audio: np.ndarray) -> np.ndarray:
+            # audio: [samples] or [2, samples] @ DEMUCS_SR
+            return rubberband_shift(audio, DEMUCS_SR, args.semitones, formant)
 
-    if args.verbose:
-        print(f"Loading vocoder from {args.vocoder_repo}")
-    vocoder = load_vocoder(args.vocoder_repo, device)
+    else:
+        max_shift = TrainConfig().perturb_st
+        if abs(args.semitones) > max_shift:
+            print(
+                f"Warning: the model was trained on shifts up to ±{max_shift} "
+                f"semitones; {args.semitones:+g} is outside that range.",
+                file=sys.stderr,
+            )
+        ckpt = args.ckpt or find_ckpt(Path("./checkpoints"))
+        if ckpt is None:
+            print(
+                "No checkpoint found in ./checkpoints/ and --ckpt not given.",
+                file=sys.stderr,
+            )
+            return 2
+        if args.verbose:
+            print(f"Loading PitchUNet from {ckpt}")
+        unet = load_unet(ckpt, device, use_ema=not args.no_ema)
+
+        # Local imports keep cold startup snappy if -h is the only ask.
+        from inference.pipeline import shift_audio_through_model
+        from inference.vocoder import load_vocoder
+
+        if args.verbose:
+            print(f"Loading vocoder from {args.vocoder_repo}")
+        vocoder = load_vocoder(args.vocoder_repo, device)
+
+        def through_model(mono: np.ndarray) -> np.ndarray:
+            return shift_audio_through_model(
+                mono,
+                DEMUCS_SR,
+                args.semitones,
+                unet,
+                vocoder,
+                device,
+                batch_size=args.batch_size,
+                verbose=args.verbose,
+            )
+
+        def shift(audio: np.ndarray) -> np.ndarray:
+            if audio.ndim == 1:
+                return through_model(audio)
+            # Mid/side: the mid (what both channels share, i.e. the voice)
+            # goes through the model; the side (reverb, doubles) is not a
+            # single voice, so it gets a plain phase-vocoder shift and the
+            # stereo image is rebuilt.
+            mid = through_model(audio.mean(axis=0))
+            side = (audio[0] - audio[1]) / 2.0
+            if float(np.abs(side).max()) > 1e-6:
+                side = librosa.effects.pitch_shift(
+                    side, sr=DEMUCS_SR, n_steps=args.semitones
+                )
+                side = _match_length(side, mid.shape[-1])
+            return np.stack([mid + side, mid - side], axis=0)
 
     default_name = _default_output(args.input, args.semitones).name
     if args.output is None:
@@ -152,22 +207,14 @@ def main(argv: list[str] | None = None) -> int:
         output = args.output
 
     if args.no_separate:
+        # The model shifts one voice, so it gets mono; Rubber Band keeps stereo.
+        mono = args.engine == "model"
         if args.verbose:
-            print(f"Loading {args.input} (mono @ {DEMUCS_SR} Hz)")
-        audio, _ = librosa.load(args.input, sr=DEMUCS_SR, mono=True)
+            print(f"Loading {args.input} @ {DEMUCS_SR} Hz")
+        audio, _ = librosa.load(args.input, sr=DEMUCS_SR, mono=mono)
         if args.verbose:
             print(f"Shifting by {args.semitones:+g} semitones")
-        shifted = shift_audio_through_model(
-            audio,
-            DEMUCS_SR,
-            args.semitones,
-            unet,
-            vocoder,
-            device,
-            batch_size=args.batch_size,
-            verbose=args.verbose,
-        )
-        shifted = _peak_normalize(shifted)
+        shifted = _peak_normalize(shift(audio))
         _write_wav(output, shifted, DEMUCS_SR)
         if args.verbose:
             print(f"Wrote {output} @ {DEMUCS_SR} Hz")
@@ -193,28 +240,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.verbose:
         print(f"Saved stems to {stems_dir}")
 
-    # Mid/side: the mid (what both channels share, i.e. the voice) goes
-    # through the model; the side (reverb, doubles) is not a single voice, so
-    # it gets a plain phase-vocoder shift and the stereo image is rebuilt.
-    vocals = stems["vocals"].numpy()
-    mid = vocals.mean(axis=0)
-    side = (vocals[0] - vocals[1]) / 2.0
     if args.verbose:
         print(f"Shifting vocals by {args.semitones:+g} semitones")
-    mid = shift_audio_through_model(
-        mid,
-        DEMUCS_SR,
-        args.semitones,
-        unet,
-        vocoder,
-        device,
-        batch_size=args.batch_size,
-        verbose=args.verbose,
-    )
-    if float(np.abs(side).max()) > 1e-6:
-        side = librosa.effects.pitch_shift(side, sr=DEMUCS_SR, n_steps=args.semitones)
-        side = _match_length(side, mid.shape[-1])
-    shifted_44k = np.stack([mid + side, mid - side], axis=0)
+    shifted_44k = shift(stems["vocals"].numpy())
 
     target_len = max(shifted_44k.shape[-1], int(stems["drums"].shape[-1]))
     mix = _match_length(shifted_44k, target_len).copy()

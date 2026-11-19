@@ -1,0 +1,51 @@
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import soundfile as sf
+
+# How far the formants follow an upward shift. A real voice's formants rise a
+# little with pitch; downwards they stay put, or the singer changes size.
+FORMANT_FOLLOW_UP = 0.25
+
+
+def default_formant_shift(semis: float) -> float:
+    return FORMANT_FOLLOW_UP * semis if semis > 0 else 0.0
+
+
+def _run(audio: np.ndarray, sr: int, semis: float, formant: bool) -> np.ndarray:
+    # audio: [samples] or [channels, samples]. Rubber Band R3 via its CLI.
+    if abs(semis) < 1e-6:
+        return audio
+    with tempfile.TemporaryDirectory() as d:
+        src, dst = Path(d) / "in.wav", Path(d) / "out.wav"
+        sf.write(src, audio.T, sr, subtype="FLOAT")
+        cmd = ["rubberband", "-q", "--fine", f"--pitch={semis}", src, dst]
+        if formant:
+            cmd.insert(3, "--formant")
+        subprocess.run(cmd, check=True, capture_output=True)
+        out, _ = sf.read(dst, dtype="float32")
+    out = out.T
+    n = audio.shape[-1]
+    if out.shape[-1] < n:
+        pad = [(0, 0)] * (out.ndim - 1) + [(0, n - out.shape[-1])]
+        out = np.pad(out, pad)
+    return np.ascontiguousarray(out[..., :n])
+
+
+def rubberband_shift(
+    audio: np.ndarray, sr: int, semis: float, formant_semis: float = 0.0
+) -> np.ndarray:
+    # Moves the pitch by `semis` and the formants by `formant_semis`: one pass
+    # moves both together, a second moves the pitch alone. Channels are
+    # processed together, so the stereo image is kept.
+    if shutil.which("rubberband") is None:
+        raise RuntimeError(
+            "The `rubberband` command-line tool is required "
+            "(macOS: `brew install rubberband`; Debian/Ubuntu: `apt install rubberband-cli`)."
+        )
+    audio = audio.astype(np.float32, copy=False)
+    both = _run(audio, sr, formant_semis, formant=False)
+    return _run(both, sr, semis - formant_semis, formant=True)
