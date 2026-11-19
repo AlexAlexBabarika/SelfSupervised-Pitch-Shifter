@@ -24,6 +24,8 @@ class DatasetSpec:
     length_hr: int
     parquet_glob: str
     group_minutes: float = 5.0
+    # Relative weight of this dataset when drawing training clips.
+    share: float = 1.0
 
 
 @dataclass
@@ -51,6 +53,7 @@ class DataConfig:
                 length_hr=3,
                 parquet_glob="data/original-*.parquet",
                 group_minutes=90,
+                share=0.5,
             ),
             "opensinger_male": DatasetSpec(
                 hf_name="CodecSR/opensinger_male",
@@ -58,6 +61,17 @@ class DataConfig:
                 length_hr=3,
                 parquet_glob="data/original-*.parquet",
                 group_minutes=90,
+                share=0.5,
+            ),
+            # A tree of WAV files, not parquet: language/singer/technique/
+            # song/group/NNNN.wav. CC BY-NC-SA 4.0.
+            "gtsinger": DatasetSpec(
+                hf_name="GTSinger/GTSinger",
+                subdir="gtsinger",
+                length_hr=10,
+                parquet_glob="**/*.wav",
+                group_minutes=30,
+                share=2.0,
             ),
         }
     )
@@ -66,6 +80,7 @@ class DataConfig:
             "vctk",
             "opensinger_female",
             "opensinger_male",
+            "gtsinger",
         ]
     )
 

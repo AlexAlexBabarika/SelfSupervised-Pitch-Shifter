@@ -1,8 +1,10 @@
 import json
+import random
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 from datasets import Audio, load_dataset
 from tqdm import tqdm
 
@@ -131,7 +133,44 @@ def process_opensinger(
     pbar.close()
 
 
+def process_gtsinger(
+    wav_root: Path,
+    wav_glob: str,
+    out_dir: Path,
+    target_sr: int,
+    budget_s: float,
+    group_cap_s: float,
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # <language>/<singer>/<technique>/<song>/<group>/NNNN.wav
+    files = sorted(
+        p for p in wav_root.glob(wav_glob) if "Paired_Speech_Group" not in p.parts
+    )
+    if not files:
+        raise FileNotFoundError(f"No GTSinger wav files under {wav_root}")
+    # Shuffled so each singer's cap is filled from a mix of songs and techniques.
+    random.Random(0).shuffle(files)
+
+    budget = {"remaining_s": budget_s}
+    used: dict[str, float] = defaultdict(float)
+    pbar = tqdm(total=int(budget_s), unit="s", desc="GTSinger")
+    for i, path in enumerate(files):
+        if budget["remaining_s"] <= 0:
+            break
+        singer = path.relative_to(wav_root).parts[1]
+        if used[singer] >= group_cap_s:
+            continue
+        wav, src_sr = sf.read(path, dtype="float32", always_2d=True)
+        sec = process_and_save(
+            wav.mean(axis=1), src_sr, out_dir, f"g_{singer}__{i:06d}", budget
+        )
+        used[singer] += sec
+        pbar.update(sec)
+    pbar.close()
+
+
 PROCESSORS = {
+    "gtsinger": process_gtsinger,
     "opensinger_male": process_opensinger,
     "nsynth": process_nsynth,
     "vctk": process_vctk,

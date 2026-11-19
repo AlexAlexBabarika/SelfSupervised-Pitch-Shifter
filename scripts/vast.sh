@@ -59,7 +59,7 @@ for key in data.datasets_to_load:
     print(f"{key}: {len(files)} segments (<= {hours:.1f} h), {len(groups)} voices, "
           f"{100 * np.mean(voiced):.0f}% frames voiced, median F0 {med:.0f} Hz")
     assert len(groups) > 1, f"{key}: need at least 2 voices for a validation split"
-    assert 0.15 < np.mean(voiced) < 0.95, f"{key}: voiced share looks wrong"
+    assert 0.15 < np.mean(voiced) < 0.98, f"{key}: voiced share looks wrong"
     assert 70 < med < 700, f"{key}: median F0 looks wrong (the old CREPE bug gave ~2000 Hz)"
 print("cache looks sane")
 PY

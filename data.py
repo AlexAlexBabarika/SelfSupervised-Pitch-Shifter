@@ -58,9 +58,9 @@ class PitchDataset(Dataset):
         dataset_keys: List[str] = data_cfg.datasets_to_load,
     ):
         self.files = []
-        # 1 / (segments in the file's dataset): sampling with these weights
-        # draws every dataset equally often, so the larger speech set does
-        # not crowd out the singing.
+        # share / (segments in the file's dataset): sampling with these
+        # weights draws each dataset in proportion to its share, whatever its
+        # size, so the larger speech set does not crowd out the singing.
         self.weights: List[float] = []
         for key in dataset_keys:
             spec = data_cfg.datasets[key]
@@ -68,7 +68,7 @@ class PitchDataset(Dataset):
                 train, val = _split_by_group(json.load(f), data_cfg.val_split)
             part = train if split == "train" else val
             self.files.extend(part)
-            self.weights.extend([1.0 / max(1, len(part))] * len(part))
+            self.weights.extend([spec.share / max(1, len(part))] * len(part))
         self.perturb_st = train_cfg.perturb_st
         self.is_train = split == "train"
 
