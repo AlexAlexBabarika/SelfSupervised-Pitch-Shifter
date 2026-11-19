@@ -6,6 +6,7 @@ import sys
 from dataclasses import asdict
 import torch
 import wandb
+from dotenv import load_dotenv
 from pathlib import Path
 from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import tqdm
@@ -14,6 +15,9 @@ from model import PitchUNet, count_params
 from inference.vocoder import load_vocoder
 from losses import TotalLoss, WaveformLoss
 from data import PitchDataset
+
+# HF_TOKEN from .env, so the vocoder and kernel downloads are authenticated.
+load_dotenv()
 
 device = (
     "cuda"

@@ -1,11 +1,22 @@
 import math
+from functools import cache
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from kernels import get_kernel
 from config import AudioConfig, ModelConfig, TrainConfig
 
-activation = get_kernel("kernels-community/activation")
+
+@cache
+def _activation_kernels():
+    # Loaded when the first model is built, not at import: every data-loader
+    # worker imports this module through train.py but never builds a model,
+    # so the workers skip the HF Hub request and the kernel load.
+    return get_kernel("kernels-community/activation")
+
+
+def _silu() -> nn.Module:
+    return _activation_kernels().layers.Silu()
 
 
 def _hz_to_mel(f: torch.Tensor) -> torch.Tensor:
@@ -55,9 +66,9 @@ class F0Encoder(nn.Module):
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Conv1d(2, 32, 5, padding=2),
-            activation.layers.Silu(),
+            _silu(),
             nn.Conv1d(32, 64, 5, padding=2),
-            activation.layers.Silu(),
+            _silu(),
             nn.Conv1d(64, out_dim, 1),
         )
 
@@ -72,7 +83,7 @@ class ShiftEncoder(nn.Module):
     def __init__(self, out_dim: int = 64):
         super().__init__()
         self.encoder = nn.Sequential(
-            nn.Linear(2, out_dim), activation.layers.Silu(), nn.Linear(out_dim, out_dim)
+            nn.Linear(2, out_dim), _silu(), nn.Linear(out_dim, out_dim)
         )
         self.shift_scale = float(TrainConfig().perturb_st)
 
@@ -120,7 +131,7 @@ class GatedSkip(nn.Module):
         super().__init__()
         self.gate = nn.Sequential(
             nn.Conv1d(f0_dim, channels, 1),
-            activation.layers.Silu(),
+            _silu(),
             nn.Conv1d(channels, channels, 1),
             nn.Sigmoid(),
         )
