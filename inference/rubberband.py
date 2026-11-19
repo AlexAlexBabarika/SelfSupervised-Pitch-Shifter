@@ -6,13 +6,14 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-# How far the formants follow an upward shift. A real voice's formants rise a
-# little with pitch; downwards they stay put, or the singer changes size.
-FORMANT_FOLLOW_UP = 0.25
+# How far the formants follow the pitch. A real voice's formants move a little
+# with pitch; holding them completely still sounds strained, letting them
+# follow all the way changes the size of the singer.
+FORMANT_FOLLOW = 0.25
 
 
 def default_formant_shift(semis: float) -> float:
-    return FORMANT_FOLLOW_UP * semis if semis > 0 else 0.0
+    return FORMANT_FOLLOW * semis
 
 
 def _run(audio: np.ndarray, sr: int, semis: float, formant: bool) -> np.ndarray:

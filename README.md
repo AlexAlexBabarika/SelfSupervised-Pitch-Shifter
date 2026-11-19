@@ -1,7 +1,10 @@
 # pitch-shifter
 
-A pitch shifter for the vocals of a song. It separates stems with Demucs, shifts
-only the vocals, and remixes. There are two shifting engines:
+A pitch shifter for songs. It separates stems with Demucs and, by default,
+transposes the whole song: the vocals with formant control, bass and other
+instruments with [Signalsmith Stretch](https://signalsmith-audio.co.uk/code/stretch/),
+drums untouched. `--mode vocals` shifts only the vocals against the original
+backing. There are two engines for the vocals:
 
 - **`rubberband`** (default): [Rubber Band](https://breakfastquay.com/rubberband/)
   with control over how far the formants follow the pitch. In `evaluate.py` and in
@@ -111,9 +114,11 @@ Useful flags:
 - `-s, --semitones` — shift amount; positive = up, negative = down (required)
 - `-o, --output` — output path (default: `<input>_shifted_<+N>st.wav` next to input)
 - `--engine` — `rubberband` (default) or `model`
+- `--mode` — `song` (default) transposes vocals, bass and other instruments and
+  leaves the drums alone; `vocals` shifts only the vocals
 - `--formant-shift` — semitones the formants move, `rubberband` engine only. The
-  default keeps them fixed when shifting down and lets them follow a quarter of the
-  way when shifting up, as a real voice does; `0` is full formant preservation
+  default lets them follow a quarter of the shift, as a real voice does; `0` is
+  full formant preservation
 - `--no-separate` — skip Demucs and shift the input as it is; meant for solo vocal
   recordings (the `model` engine only handles a single voice)
 
@@ -142,6 +147,26 @@ uv run Process_HF_Datasets.py
 # 3. train
 uv run train.py
 ```
+
+`train.py` takes `--max-steps`, `--val-every`, `--save-every`, `--batch-size`,
+`--num-workers` and `--out-dir` to override `TrainConfig` for a run. It resumes
+from the latest checkpoint in `<out-dir>/checkpoints/`.
+
+### On a rented GPU (Vast.ai)
+
+Pick an Ubuntu image with an NVIDIA driver, a 24 GB card, 8 or more CPU cores (the
+loader runs WORLD on the CPU for every clip) and about 40 GB of disk. Clone the
+repository, then:
+
+```bash
+HF_TOKEN=hf_... bash scripts/vast.sh setup   # system packages, uv, Python deps
+bash scripts/vast.sh data                    # download, preprocess, sanity-check the cache
+bash scripts/vast.sh smoke                   # 60 steps end to end before paying for hours
+tmux new -s train 'bash scripts/vast.sh train'
+bash scripts/vast.sh eval
+```
+
+Copy `best.pt` off the machine before destroying the instance.
 
 Datasets, the per-dataset hour budget, and the train/val split are configured in
 `DataConfig`. Validation holds out whole speakers, singers and instruments, so

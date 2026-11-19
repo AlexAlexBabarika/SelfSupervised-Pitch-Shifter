@@ -14,6 +14,7 @@ import torchaudio
 from config import TrainConfig
 from inference.checkpoint import find_ckpt, load_unet
 from inference.rubberband import default_formant_shift, rubberband_shift
+from inference.signalsmith import signalsmith_shift
 
 
 DEMUCS_SR = 44100
@@ -90,7 +91,15 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=None,
         help="Semitones the formants move (rubberband engine). Default: a "
-        "quarter of the shift when going up, 0 when going down.",
+        "quarter of the shift.",
+    )
+    p.add_argument(
+        "--mode",
+        default="song",
+        choices=["song", "vocals"],
+        help="song: transpose the whole song (vocals with the engine, bass and "
+        "other instruments with Signalsmith Stretch, drums untouched). "
+        "vocals: shift only the vocals against the original backing.",
     )
     p.add_argument(
         "--no-separate",
@@ -244,10 +253,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Shifting vocals by {args.semitones:+g} semitones")
     shifted_44k = shift(stems["vocals"].numpy())
 
+    backing = {name: stems[name].numpy() for name in ("drums", "bass", "other")}
+    if args.mode == "song":
+        # Shifting only the vocal leaves it in a different key from the band.
+        # Drums have no key, and shifting them just damages the transients.
+        if args.verbose:
+            print("Shifting bass and other instruments")
+        pitched = signalsmith_shift(
+            backing.pop("bass") + backing.pop("other"), DEMUCS_SR, args.semitones
+        )
+        backing["pitched"] = pitched
+
     target_len = max(shifted_44k.shape[-1], int(stems["drums"].shape[-1]))
     mix = _match_length(shifted_44k, target_len).copy()
-    for name in ("drums", "bass", "other"):
-        s = stems[name].numpy()
+    for s in backing.values():
         mix = mix + _match_length(s, target_len)
 
     mix = _peak_normalize(mix)
