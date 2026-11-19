@@ -65,15 +65,23 @@ print("cache looks sane")
 PY
 }
 
+free_space() {
+    echo "free disk space here: $(df -h . | awk 'NR==2 {print $4}')"
+}
+
 smoke() {
-    rm -rf /tmp/pitch_smoke
+    # Kept next to the repository: /tmp sits on the container's small root
+    # disk on Vast.ai, and each checkpoint is about 300 MB.
+    free_space
+    rm -rf .smoke
     uv run train.py --max-steps 60 --val-every 30 --save-every 20 \
-        --num-workers "$WORKERS" --out-dir /tmp/pitch_smoke
-    rm -rf /tmp/pitch_smoke
+        --num-workers "$WORKERS" --out-dir .smoke
+    rm -rf .smoke
     echo "smoke test passed"
 }
 
 train() {
+    free_space
     uv run train.py --num-workers "$WORKERS" 2>&1 | tee -a train.log
 }
 
