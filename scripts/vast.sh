@@ -12,8 +12,30 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-NPROC="$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
-WORKERS="${WORKERS:-$(( NPROC > 2 ? NPROC - 2 : 1 ))}"
+# CPUs this container may use. Vast.ai limits a container with a cgroup CPU
+# quota, but nproc still counts every core on the host, often 64 to 256. One
+# data-loader worker per host core, each starting an OpenMP pool of that many
+# threads, runs out of threads ("libgomp: Thread creation failed").
+cpus_available() {
+    local n quota period
+    n="$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+    if [ -r /sys/fs/cgroup/cpu.max ]; then                 # cgroup v2
+        read -r quota period < /sys/fs/cgroup/cpu.max
+    elif [ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]; then  # cgroup v1
+        quota="$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)"
+        period="$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)"
+    fi
+    # "max" (v2) or -1 (v1) means no quota.
+    if [[ "${quota:-}" =~ ^[0-9]+$ ]] && [ "$quota" -gt 0 ]; then
+        local limit=$(( (quota + period - 1) / period ))
+        [ "$limit" -lt "$n" ] && n="$limit"
+    fi
+    echo "$n"
+}
+
+CPUS="$(cpus_available)"
+WORKERS="${WORKERS:-$(( CPUS > 2 ? CPUS - 2 : 1 ))}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$CPUS}"
 SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
 setup() {
@@ -67,6 +89,7 @@ PY
 
 free_space() {
     echo "free disk space here: $(df -h . | awk 'NR==2 {print $4}')"
+    echo "CPUs: $CPUS usable (nproc says $(nproc 2>/dev/null || sysctl -n hw.ncpu)), $WORKERS data-loader workers"
 }
 
 smoke() {
