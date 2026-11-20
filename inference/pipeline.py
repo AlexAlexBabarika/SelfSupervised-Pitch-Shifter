@@ -133,10 +133,12 @@ def shift_audio_through_model(
     batch_size: int = 8,
     overlap: float = 0.25,
     verbose: bool = False,
+    formant_semis: float = 0.0,
 ) -> np.ndarray:
     # mono_audio: [samples] @ sr. Returns the shifted waveform at the same
     # rate and length. The model works at AudioConfig.target_sr and up to
     # fmax; the band above fmax is taken from the WORLD shift at full rate.
+    # formant_semis moves the formants in the WORLD shift the model refines.
     cfg = AudioConfig()
     n = int(mono_audio.shape[-1])
     if n <= 0:
@@ -159,7 +161,11 @@ def shift_audio_through_model(
         idx = np.round(np.linspace(0, f0.shape[0] - 1, n_frames)).astype(np.int64)
         f0, conf = f0[idx], conf[idx]
 
-    shifted = world_pitch_shift(x, f0, conf, semis) if abs(semis) > 1e-4 else x
+    shifted = (
+        world_pitch_shift(x, f0, conf, semis, formant_semis=formant_semis)
+        if abs(semis) > 1e-4
+        else x
+    )
     mel = compute_mel_spectrogram(shifted[None])[0]  # [n_mels, T]
     mel = _refine_mel(
         mel,
@@ -182,7 +188,9 @@ def shift_audio_through_model(
     if sr / 2 > cfg.fmax:
         full = mono_audio * gain
         if abs(semis) > 1e-4:
-            full = world_pitch_shift(full, f0, conf, semis, sr=sr)
+            full = world_pitch_shift(
+                full, f0, conf, semis, sr=sr, formant_semis=formant_semis
+            )
         out = _lowpass(out, cfg.fmax, sr) + (full - _lowpass(full, cfg.fmax, sr))
 
     return (out / gain).astype(np.float32)

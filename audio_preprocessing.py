@@ -122,15 +122,20 @@ def world_pitch_shift(
     conf: np.ndarray,
     semis: float,
     sr: int = cfg.target_sr,
+    formant_semis: float = 0.0,
 ) -> np.ndarray:
     # audio: [samples] @ sr, f0_hz/conf: [T] on the mel frame grid (hop_length
-    # samples at target_sr, whatever sr is). WORLD resynthesis
-    # with the F0 track scaled and the spectral envelope kept, so formants stay put.
+    # samples at target_sr, whatever sr is). WORLD resynthesis with the F0
+    # track scaled and the spectral envelope kept, so formants stay put, or
+    # moved by formant_semis.
     x = np.ascontiguousarray(audio, dtype=np.float64)
     f0 = np.where(conf > cfg.voiced_threshold, f0_hz, 0.0).astype(np.float64)
     t = np.arange(len(f0), dtype=np.float64) * cfg.hop_length / cfg.target_sr
     sp = pyworld.cheaptrick(x, f0, t, sr)
     ap = pyworld.d4c(x, f0, t, sr)
+    if abs(formant_semis) > 1e-6:
+        sp = _warp_frequency(sp, sr, formant_semis)
+        ap = _warp_frequency(ap, sr, formant_semis)
     y = pyworld.synthesize(
         f0 * 2.0 ** (semis / 12.0),
         sp,
@@ -141,6 +146,16 @@ def world_pitch_shift(
     n = len(x)
     y = y[:n] if len(y) >= n else np.pad(y, (0, n - len(y)))
     return y.astype(np.float32)
+
+
+def _warp_frequency(frames: np.ndarray, sr: int, semis: float) -> np.ndarray:
+    # frames: [T, bins] over 0..sr/2. Moves every feature up by `semis`: the
+    # value at f lands at f * 2**(semis / 12).
+    r = 2.0 ** (semis / 12.0)
+    freqs = np.linspace(0.0, sr / 2.0, frames.shape[1])
+    return np.ascontiguousarray(
+        np.stack([np.interp(freqs / r, freqs, row) for row in frames])
+    )
 
 
 def _decode_f0(probs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

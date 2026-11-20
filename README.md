@@ -4,15 +4,20 @@ A pitch shifter for songs. It separates stems with Demucs and, by default,
 transposes the whole song: the vocals with formant control, bass and other
 instruments with [Signalsmith Stretch](https://signalsmith-audio.co.uk/code/stretch/),
 drums untouched. `--mode vocals` shifts only the vocals against the original
-backing. There are two engines for the vocals:
+backing. There are two engines for the vocals, and by default (`--engine auto`)
+the shift size picks one: Rubber Band up to 3 semitones, the model above that
+(Rubber Band if no checkpoint is found).
 
-- **`rubberband`** (default): [Rubber Band](https://breakfastquay.com/rubberband/)
-  with control over how far the formants follow the pitch. In `evaluate.py` and in
-  listening comparisons it beat WORLD, which sounded metallic with or without the
-  vocoder; the U-Net had not been retrained when that comparison was made.
-- **`model`** (experimental): a formant-preserving WORLD shift moves the pitch, a
-  conditional U-Net predicts the clean mel-spectrogram of the shifted signal, and a
-  BigVGAN vocoder resynthesizes the audio. It needs a trained checkpoint.
+- **`rubberband`**: [Rubber Band](https://breakfastquay.com/rubberband/)
+  with control over how far the formants follow the pitch. In `evaluate.py` it is
+  ahead of the model on every measure at 1 semitone and on the round trip at 3.
+- **`model`**: a WORLD shift moves the pitch, a conditional U-Net predicts the
+  clean mel-spectrogram of the shifted signal, and a BigVGAN vocoder resynthesizes
+  the audio. It needs a trained checkpoint
+  ([weights on Hugging Face](https://huggingface.co/AlexAlexBabarika/SelfSupervised-Pitch-Shifter)).
+  At 6 semitones it is ahead of Rubber Band on the envelope and round-trip measures
+  and was preferred in a small blind listening test, but large shifts still sound
+  somewhat robotic.
 
 ## How the model engine works
 
@@ -31,7 +36,7 @@ song.wav
                        │          │          + band above 8 kHz from a
                        │          │            44.1 kHz WORLD shift
                        │          │                 │
-                       │          └─ side ─► phase-vocoder shift
+                       │          └─ side ─► Rubber Band shift
                        │                            │
                        └─ drums/bass/other ─────────┴──► remix ──► shifted.wav
 ```
@@ -66,7 +71,9 @@ so backing vocals and heavy reverb in the input degrade the result.
 At inference F0 and WORLD run once over the whole signal, the U-Net runs over
 overlapping windows whose predicted mels are cross-faded, and the vocoder makes a
 single pass over the stitched mel. For stereo vocals the mid channel goes through
-the model and the side channel gets a plain phase-vocoder shift.
+the model and Rubber Band shifts the side channel with the same formant setting.
+On a downward shift the WORLD envelope is moved by a quarter of the shift before
+the U-Net sees it, so the formants follow a little, as a real voice's do.
 
 ## Layout
 
@@ -106,25 +113,29 @@ Shift a song down two semitones (separates stems, shifts vocals, remixes):
 uv run inference.py path/to/song.wav -s -2
 ```
 
-The default engine needs the `rubberband` command-line tool
+Both engines need the `rubberband` command-line tool (the model engine uses it for
+the stereo side of the vocal)
 (`brew install rubberband` on macOS, `apt install rubberband-cli` on Debian/Ubuntu).
 
 Useful flags:
 
 - `-s, --semitones` — shift amount; positive = up, negative = down (required)
 - `-o, --output` — output path (default: `<input>_shifted_<+N>st.wav` next to input)
-- `--engine` — `rubberband` (default) or `model`
+- `--engine` — `auto` (default: Rubber Band up to 3 semitones, the model above),
+  `rubberband` or `model`
 - `--mode` — `song` (default) transposes vocals, bass and other instruments and
   leaves the drums alone; `vocals` shifts only the vocals
-- `--formant-shift` — semitones the formants move, `rubberband` engine only. The
-  default lets them follow a quarter of the shift, as a real voice does; `0` is
-  full formant preservation
+- `--formant-shift` — semitones the formants move; `0` is full formant
+  preservation. Default: with Rubber Band they follow a quarter of the shift, as a
+  real voice does; with the model they follow a quarter of a downward shift and
+  stay put on an upward one, which won a small blind listening test
 - `--no-separate` — skip Demucs and shift the input as it is; meant for solo vocal
   recordings (the `model` engine only handles a single voice)
 
 Flags for the `model` engine:
 
-- `--ckpt` — PitchUNet checkpoint (default: `./best.pt`, else `./final.pt`, else latest
+- `--ckpt` — PitchUNet checkpoint, a training `.pt` or the released
+  `model.safetensors` (default: `./best.pt`, else `./final.pt`, else latest
   `./checkpoints/step_*.pt`)
 - `--no-ema` — use raw weights instead of the EMA shadow
 - `--vocoder-repo` — HF repo of the vocoder; BigVGAN and HiFi-GAN repos both work

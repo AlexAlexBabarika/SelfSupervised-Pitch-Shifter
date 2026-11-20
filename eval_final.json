@@ -1,0 +1,496 @@
+{
+  "ckpt": "best.pt",
+  "n_clips": 300,
+  "results": [
+    {
+      "shift": -6.0,
+      "system": "librosa",
+      "f0_median_cents": 8.750056266784668,
+      "f0_gross_pct": 6.572498086985296,
+      "voiced_kept_pct": 96.02232107395345,
+      "envelope_dist": 0.9775832658694248,
+      "roundtrip_mel_l1": 0.7926001835586183,
+      "roundtrip_mcd_db": 20.008631837228098
+    },
+    {
+      "shift": -6.0,
+      "system": "rubberband",
+      "f0_median_cents": 3.5018727779388428,
+      "f0_gross_pct": 0.8048248741824405,
+      "voiced_kept_pct": 97.46405592183652,
+      "envelope_dist": 0.5410311939299047,
+      "roundtrip_mel_l1": 0.4674970195394559,
+      "roundtrip_mcd_db": 32.77841228875234
+    },
+    {
+      "shift": -6.0,
+      "system": "psola",
+      "f0_median_cents": 3.2002686262130737,
+      "f0_gross_pct": 0.9850612610412343,
+      "voiced_kept_pct": 97.57327825879736,
+      "envelope_dist": 0.3454643069060264,
+      "roundtrip_mel_l1": 0.4035649061601467,
+      "roundtrip_mcd_db": 16.757302580562293
+    },
+    {
+      "shift": -6.0,
+      "system": "world",
+      "f0_median_cents": 4.53275203704834,
+      "f0_gross_pct": 1.1018511098645725,
+      "voiced_kept_pct": 99.12622130431329,
+      "envelope_dist": 0.33899400632549576,
+      "roundtrip_mel_l1": 0.5605812668261786,
+      "roundtrip_mcd_db": 22.160635332941638
+    },
+    {
+      "shift": -6.0,
+      "system": "world+vocoder",
+      "f0_median_cents": 8.16194772720337,
+      "f0_gross_pct": 3.0838600587785336,
+      "voiced_kept_pct": 98.65358646437366,
+      "envelope_dist": 0.3411647998053015,
+      "roundtrip_mel_l1": 0.5935725851102969,
+      "roundtrip_mcd_db": 23.01993601747704
+    },
+    {
+      "shift": -6.0,
+      "system": "world+unet+vocoder",
+      "f0_median_cents": 7.279934883117676,
+      "f0_gross_pct": 3.0043711137105213,
+      "voiced_kept_pct": 96.76900468663119,
+      "envelope_dist": 0.35355501224382513,
+      "roundtrip_mel_l1": 0.4234736498591159,
+      "roundtrip_mcd_db": 15.62186213225868
+    },
+    {
+      "shift": -6.0,
+      "system": "vocoder only",
+      "f0_median_cents": NaN,
+      "f0_gross_pct": NaN,
+      "voiced_kept_pct": NaN,
+      "envelope_dist": 0.0649240093830612,
+      "roundtrip_mel_l1": 0.2589276719978053,
+      "roundtrip_mcd_db": 7.550812800490334
+    },
+    {
+      "shift": -3.0,
+      "system": "librosa",
+      "f0_median_cents": 8.032463550567627,
+      "f0_gross_pct": 5.766718380011431,
+      "voiced_kept_pct": 97.28334260068313,
+      "envelope_dist": 0.6213690416164496,
+      "roundtrip_mel_l1": 0.7751414461917999,
+      "roundtrip_mcd_db": 19.456493561517345
+    },
+    {
+      "shift": -3.0,
+      "system": "rubberband",
+      "f0_median_cents": 3.0864672660827637,
+      "f0_gross_pct": 0.43315453901426976,
+      "voiced_kept_pct": 98.11144650091349,
+      "envelope_dist": 0.2733639026534523,
+      "roundtrip_mel_l1": 0.2864892978793184,
+      "roundtrip_mcd_db": 12.997541748789025
+    },
+    {
+      "shift": -3.0,
+      "system": "psola",
+      "f0_median_cents": 2.8981306552886963,
+      "f0_gross_pct": 0.9450067064992074,
+      "voiced_kept_pct": 97.71626022718246,
+      "envelope_dist": 0.29872480326554685,
+      "roundtrip_mel_l1": 0.3966011593066063,
+      "roundtrip_mcd_db": 16.468218141502525
+    },
+    {
+      "shift": -3.0,
+      "system": "world",
+      "f0_median_cents": 4.2788801193237305,
+      "f0_gross_pct": 0.9426409958771965,
+      "voiced_kept_pct": 99.22551433791405,
+      "envelope_dist": 0.30416732505169064,
+      "roundtrip_mel_l1": 0.5588993933211619,
+      "roundtrip_mcd_db": 22.20625404441598
+    },
+    {
+      "shift": -3.0,
+      "system": "world+vocoder",
+      "f0_median_cents": 8.636910438537598,
+      "f0_gross_pct": 2.6830295373879562,
+      "voiced_kept_pct": 99.03288585272857,
+      "envelope_dist": 0.3046141930694793,
+      "roundtrip_mel_l1": 0.5957793518501384,
+      "roundtrip_mcd_db": 23.201482450829406
+    },
+    {
+      "shift": -3.0,
+      "system": "world+unet+vocoder",
+      "f0_median_cents": 7.462044715881348,
+      "f0_gross_pct": 2.313446525753654,
+      "voiced_kept_pct": 97.42831042974025,
+      "envelope_dist": 0.2610278724820341,
+      "roundtrip_mel_l1": 0.42982372333100266,
+      "roundtrip_mcd_db": 15.947961778125602
+    },
+    {
+      "shift": -3.0,
+      "system": "vocoder only",
+      "f0_median_cents": NaN,
+      "f0_gross_pct": NaN,
+      "voiced_kept_pct": NaN,
+      "envelope_dist": 0.0649240093830612,
+      "roundtrip_mel_l1": 0.2589276719978053,
+      "roundtrip_mcd_db": 7.550812800490334
+    },
+    {
+      "shift": -1.0,
+      "system": "librosa",
+      "f0_median_cents": 7.692927837371826,
+      "f0_gross_pct": 5.279837480954799,
+      "voiced_kept_pct": 97.75399157995075,
+      "envelope_dist": 0.39007835082479686,
+      "roundtrip_mel_l1": 0.7334079654386554,
+      "roundtrip_mcd_db": 18.64169568443157
+    },
+    {
+      "shift": -1.0,
+      "system": "rubberband",
+      "f0_median_cents": 2.972271203994751,
+      "f0_gross_pct": 0.40809729686047924,
+      "voiced_kept_pct": 98.29613154341091,
+      "envelope_dist": 0.14838199693695728,
+      "roundtrip_mel_l1": 0.2043043130903546,
+      "roundtrip_mcd_db": 8.099226427846428
+    },
+    {
+      "shift": -1.0,
+      "system": "psola",
+      "f0_median_cents": 2.896790027618408,
+      "f0_gross_pct": 1.0935601458080195,
+      "voiced_kept_pct": 98.06179998411312,
+      "envelope_dist": 0.259022582442712,
+      "roundtrip_mel_l1": 0.3834934867886035,
+      "roundtrip_mcd_db": 15.598641249885663
+    },
+    {
+      "shift": -1.0,
+      "system": "world",
+      "f0_median_cents": 4.313107013702393,
+      "f0_gross_pct": 1.0147102972080455,
+      "voiced_kept_pct": 99.22352847724204,
+      "envelope_dist": 0.3078265467618911,
+      "roundtrip_mel_l1": 0.5612845179724801,
+      "roundtrip_mcd_db": 22.338952723848763
+    },
+    {
+      "shift": -1.0,
+      "system": "world+vocoder",
+      "f0_median_cents": 8.718217849731445,
+      "f0_gross_pct": 2.6138161716105515,
+      "voiced_kept_pct": 99.14806577170546,
+      "envelope_dist": 0.3032293377723454,
+      "roundtrip_mel_l1": 0.597316067486786,
+      "roundtrip_mcd_db": 23.548217300574624
+    },
+    {
+      "shift": -1.0,
+      "system": "world+unet+vocoder",
+      "f0_median_cents": 7.434509038925171,
+      "f0_gross_pct": 1.916971916971917,
+      "voiced_kept_pct": 97.58519342282945,
+      "envelope_dist": 0.20358032534249917,
+      "roundtrip_mel_l1": 0.43613367021617666,
+      "roundtrip_mcd_db": 16.145462217859695
+    },
+    {
+      "shift": -1.0,
+      "system": "vocoder only",
+      "f0_median_cents": NaN,
+      "f0_gross_pct": NaN,
+      "voiced_kept_pct": NaN,
+      "envelope_dist": 0.0649240093830612,
+      "roundtrip_mel_l1": 0.2589276719978053,
+      "roundtrip_mcd_db": 7.550812800490334
+    },
+    {
+      "shift": 1.0,
+      "system": "librosa",
+      "f0_median_cents": 6.8983283042907715,
+      "f0_gross_pct": 4.554777134734491,
+      "voiced_kept_pct": 97.79370879339105,
+      "envelope_dist": 0.39822978044395096,
+      "roundtrip_mel_l1": 0.7205301028429815,
+      "roundtrip_mcd_db": 18.440352455111576
+    },
+    {
+      "shift": 1.0,
+      "system": "rubberband",
+      "f0_median_cents": 2.866708755493164,
+      "f0_gross_pct": 0.4335114426857546,
+      "voiced_kept_pct": 98.48876002859639,
+      "envelope_dist": 0.16229951373140425,
+      "roundtrip_mel_l1": 0.21065740716131032,
+      "roundtrip_mcd_db": 8.09789243726183
+    },
+    {
+      "shift": 1.0,
+      "system": "psola",
+      "f0_median_cents": 2.8491952419281006,
+      "f0_gross_pct": 1.210198803943753,
+      "voiced_kept_pct": 98.29215982206688,
+      "envelope_dist": 0.24706483683254654,
+      "roundtrip_mel_l1": 0.4037186372038076,
+      "roundtrip_mcd_db": 16.49356658513839
+    },
+    {
+      "shift": 1.0,
+      "system": "world",
+      "f0_median_cents": 4.208384037017822,
+      "f0_gross_pct": 1.060593932602257,
+      "voiced_kept_pct": 99.23742950194614,
+      "envelope_dist": 0.38172360221732854,
+      "roundtrip_mel_l1": 0.5632652507932004,
+      "roundtrip_mcd_db": 23.041148980443207
+    },
+    {
+      "shift": 1.0,
+      "system": "world+vocoder",
+      "f0_median_cents": 8.985189437866211,
+      "f0_gross_pct": 2.3338742312238314,
+      "voiced_kept_pct": 99.1282071649853,
+      "envelope_dist": 0.36903448186915405,
+      "roundtrip_mel_l1": 0.597270625838219,
+      "roundtrip_mcd_db": 23.930222418270585
+    },
+    {
+      "shift": 1.0,
+      "system": "world+unet+vocoder",
+      "f0_median_cents": 7.398136138916016,
+      "f0_gross_pct": 1.888746725156888,
+      "voiced_kept_pct": 97.78179362935896,
+      "envelope_dist": 0.21450838616282192,
+      "roundtrip_mel_l1": 0.4449517978660822,
+      "roundtrip_mcd_db": 16.49811032375099
+    },
+    {
+      "shift": 1.0,
+      "system": "vocoder only",
+      "f0_median_cents": NaN,
+      "f0_gross_pct": NaN,
+      "voiced_kept_pct": NaN,
+      "envelope_dist": 0.0649240093830612,
+      "roundtrip_mel_l1": 0.2589276719978053,
+      "roundtrip_mcd_db": 7.550812800490334
+    },
+    {
+      "shift": 3.0,
+      "system": "librosa",
+      "f0_median_cents": 6.7829203605651855,
+      "f0_gross_pct": 3.9327778791380323,
+      "voiced_kept_pct": 97.96052108984034,
+      "envelope_dist": 0.5855350183858608,
+      "roundtrip_mel_l1": 0.7631767159942076,
+      "roundtrip_mcd_db": 19.197043802381504
+    },
+    {
+      "shift": 3.0,
+      "system": "rubberband",
+      "f0_median_cents": 3.048218250274658,
+      "f0_gross_pct": 0.5440367527050716,
+      "voiced_kept_pct": 98.55627929144491,
+      "envelope_dist": 0.3012557010210431,
+      "roundtrip_mel_l1": 0.32158074411003185,
+      "roundtrip_mcd_db": 13.776052682882531
+    },
+    {
+      "shift": 3.0,
+      "system": "psola",
+      "f0_median_cents": 3.0393595695495605,
+      "f0_gross_pct": 1.0674282473516843,
+      "voiced_kept_pct": 98.04392723806498,
+      "envelope_dist": 0.2742714749640443,
+      "roundtrip_mel_l1": 0.45272161010774814,
+      "roundtrip_mcd_db": 19.393180691453278
+    },
+    {
+      "shift": 3.0,
+      "system": "world",
+      "f0_median_cents": 4.32460355758667,
+      "f0_gross_pct": 0.9223135866194505,
+      "voiced_kept_pct": 99.25927396933831,
+      "envelope_dist": 0.5022033656803262,
+      "roundtrip_mel_l1": 0.5740538074298587,
+      "roundtrip_mcd_db": 23.995248574765878
+    },
+    {
+      "shift": 3.0,
+      "system": "world+vocoder",
+      "f0_median_cents": 9.40408706665039,
+      "f0_gross_pct": 2.16899321063067,
+      "voiced_kept_pct": 99.15600921439352,
+      "envelope_dist": 0.48379460467230306,
+      "roundtrip_mel_l1": 0.6112349040833518,
+      "roundtrip_mcd_db": 25.030764193398348
+    },
+    {
+      "shift": 3.0,
+      "system": "world+unet+vocoder",
+      "f0_median_cents": 7.63851261138916,
+      "f0_gross_pct": 1.794960303762513,
+      "voiced_kept_pct": 97.80165223607912,
+      "envelope_dist": 0.2958725262118293,
+      "roundtrip_mel_l1": 0.45848347069185874,
+      "roundtrip_mcd_db": 17.52211425912843
+    },
+    {
+      "shift": 3.0,
+      "system": "vocoder only",
+      "f0_median_cents": NaN,
+      "f0_gross_pct": NaN,
+      "voiced_kept_pct": NaN,
+      "envelope_dist": 0.0649240093830612,
+      "roundtrip_mel_l1": 0.2589276719978053,
+      "roundtrip_mcd_db": 7.550812800490334
+    },
+    {
+      "shift": 6.0,
+      "system": "librosa",
+      "f0_median_cents": 6.392826557159424,
+      "f0_gross_pct": 3.617874650569217,
+      "voiced_kept_pct": 98.0339979347049,
+      "envelope_dist": 0.8476004916017379,
+      "roundtrip_mel_l1": 0.8224436231584111,
+      "roundtrip_mcd_db": 24.12609390459905
+    },
+    {
+      "shift": 6.0,
+      "system": "rubberband",
+      "f0_median_cents": 3.4269754886627197,
+      "f0_gross_pct": 0.7259528130671506,
+      "voiced_kept_pct": 98.47883072523632,
+      "envelope_dist": 0.5320094979292909,
+      "roundtrip_mel_l1": 0.5624144036008865,
+      "roundtrip_mcd_db": 41.09268509682856
+    },
+    {
+      "shift": 6.0,
+      "system": "psola",
+      "f0_median_cents": 3.331422209739685,
+      "f0_gross_pct": 1.2483734547820429,
+      "voiced_kept_pct": 97.67257129239812,
+      "envelope_dist": 0.3136644898876275,
+      "roundtrip_mel_l1": 0.5103974653546759,
+      "roundtrip_mcd_db": 21.911771446668386
+    },
+    {
+      "shift": 6.0,
+      "system": "world",
+      "f0_median_cents": 4.5114476680755615,
+      "f0_gross_pct": 1.018362601234865,
+      "voiced_kept_pct": 99.0626737628088,
+      "envelope_dist": 0.674700703371741,
+      "roundtrip_mel_l1": 0.5922242214676712,
+      "roundtrip_mcd_db": 25.44907960052374
+    },
+    {
+      "shift": 6.0,
+      "system": "world+vocoder",
+      "f0_median_cents": 9.956353187561035,
+      "f0_gross_pct": 2.190646542195068,
+      "voiced_kept_pct": 98.81046945746287,
+      "envelope_dist": 0.6520056962769951,
+      "roundtrip_mel_l1": 0.631371000952547,
+      "roundtrip_mcd_db": 26.48075607531717
+    },
+    {
+      "shift": 6.0,
+      "system": "world+unet+vocoder",
+      "f0_median_cents": 8.281755447387695,
+      "f0_gross_pct": 2.001383069600944,
+      "voiced_kept_pct": 97.63682580030185,
+      "envelope_dist": 0.41684064889727157,
+      "roundtrip_mel_l1": 0.47966283402756416,
+      "roundtrip_mcd_db": 18.544269537673614
+    },
+    {
+      "shift": 6.0,
+      "system": "vocoder only",
+      "f0_median_cents": NaN,
+      "f0_gross_pct": NaN,
+      "voiced_kept_pct": NaN,
+      "envelope_dist": 0.0649240093830612,
+      "roundtrip_mel_l1": 0.2589276719978053,
+      "roundtrip_mcd_db": 7.550812800490334
+    },
+    {
+      "shift": "all",
+      "system": "librosa",
+      "f0_median_cents": 7.36260724067688,
+      "f0_gross_pct": 4.947607179480214,
+      "voiced_kept_pct": 97.47464717875394,
+      "envelope_dist": 0.6367326581237034,
+      "roundtrip_mel_l1": 0.7678833395307789,
+      "roundtrip_mcd_db": 19.978385207544857
+    },
+    {
+      "shift": "all",
+      "system": "rubberband",
+      "f0_median_cents": 3.1438071727752686,
+      "f0_gross_pct": 0.557959002142886,
+      "voiced_kept_pct": 98.23258400190643,
+      "envelope_dist": 0.3263903010336754,
+      "roundtrip_mel_l1": 0.3421571975635596,
+      "roundtrip_mcd_db": 19.473635113726786
+    },
+    {
+      "shift": "all",
+      "system": "psola",
+      "f0_median_cents": 3.030853271484375,
+      "f0_gross_pct": 1.0917229883930473,
+      "voiced_kept_pct": 97.89333280377048,
+      "envelope_dist": 0.289702082383084,
+      "roundtrip_mel_l1": 0.42508287748693135,
+      "roundtrip_mcd_db": 17.77044678253509
+    },
+    {
+      "shift": "all",
+      "system": "world",
+      "f0_median_cents": 4.362362384796143,
+      "f0_gross_pct": 1.0100571931955447,
+      "voiced_kept_pct": 99.18910689226044,
+      "envelope_dist": 0.41826925823474553,
+      "roundtrip_mel_l1": 0.5683847429684251,
+      "roundtrip_mcd_db": 23.198553209489866
+    },
+    {
+      "shift": "all",
+      "system": "world+vocoder",
+      "f0_median_cents": 8.973156929016113,
+      "f0_gross_pct": 2.512045312442532,
+      "voiced_kept_pct": 98.98820398760823,
+      "envelope_dist": 0.408973852244263,
+      "roundtrip_mel_l1": 0.6044240892202232,
+      "roundtrip_mcd_db": 24.201896409311196
+    },
+    {
+      "shift": "all",
+      "system": "world+unet+vocoder",
+      "f0_median_cents": 7.573528289794922,
+      "f0_gross_pct": 2.151848029764006,
+      "voiced_kept_pct": 97.50046336749014,
+      "envelope_dist": 0.29089746189004684,
+      "roundtrip_mel_l1": 0.44542152433196674,
+      "roundtrip_mcd_db": 16.713296708132837
+    },
+    {
+      "shift": "all",
+      "system": "vocoder only",
+      "f0_median_cents": NaN,
+      "f0_gross_pct": NaN,
+      "voiced_kept_pct": NaN,
+      "envelope_dist": 0.0649240093830612,
+      "roundtrip_mel_l1": 0.2589276719978053,
+      "roundtrip_mcd_db": 7.550812800490334
+    }
+  ]
+}

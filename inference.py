@@ -18,6 +18,17 @@ from inference.signalsmith import signalsmith_shift
 
 
 DEMUCS_SR = 44100
+# The auto engine uses the model only above this many semitones. Rubber Band
+# scored better on every evaluate.py measure at 1 semitone and on the round
+# trip at 3; the model was ahead at 6.
+AUTO_MODEL_ABOVE = 3.0
+
+
+def model_formant_shift(semis: float) -> float:
+    # Formants follow a quarter of a downward shift and stay put on an upward
+    # one. In blind listening (20 Nov 2026, one listener) that won both
+    # downward excerpts at 6 semitones; plain preservation won the upward one.
+    return 0.25 * semis if semis < 0 else 0.0
 
 
 def _resolve_device(arg: str) -> torch.device:
@@ -80,18 +91,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument(
         "--engine",
-        default="rubberband",
-        choices=["rubberband", "model"],
-        help="rubberband: Rubber Band with formant control (default, needs the "
-        "`rubberband` CLI). model: WORLD + PitchUNet + vocoder (needs a "
-        "trained checkpoint).",
+        default="auto",
+        choices=["auto", "rubberband", "model"],
+        help=f"auto (default): rubberband for shifts up to {AUTO_MODEL_ABOVE:g} "
+        "semitones, model above that if a checkpoint is found. rubberband: "
+        "Rubber Band with formant control (needs the `rubberband` CLI). model: "
+        "WORLD + PitchUNet + vocoder (needs a trained checkpoint).",
     )
     p.add_argument(
         "--formant-shift",
         type=float,
         default=None,
-        help="Semitones the formants move (rubberband engine). Default: a "
-        "quarter of the shift.",
+        help="Semitones the formants move. Default: rubberband engine, a "
+        "quarter of the shift; model engine, a quarter of a downward shift "
+        "and none for an upward one.",
     )
     p.add_argument(
         "--mode",
@@ -140,11 +153,27 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     device = _resolve_device(args.device)
+    engine = args.engine
+    ckpt = None
+    if engine in ("auto", "model"):
+        ckpt = args.ckpt or find_ckpt(Path("./checkpoints"))
+    if engine == "auto":
+        if abs(args.semitones) <= AUTO_MODEL_ABOVE:
+            engine = "rubberband"
+        elif ckpt is None:
+            print("No model checkpoint found; using Rubber Band.", file=sys.stderr)
+            engine = "rubberband"
+        else:
+            engine = "model"
+
     formant = args.formant_shift
     if formant is None:
-        formant = default_formant_shift(args.semitones)
+        if engine == "rubberband":
+            formant = default_formant_shift(args.semitones)
+        else:
+            formant = model_formant_shift(args.semitones)
 
-    if args.engine == "rubberband":
+    if engine == "rubberband":
         if args.verbose:
             print(f"Engine: Rubber Band, formants {formant:+g} semitones")
 
@@ -160,7 +189,6 @@ def main(argv: list[str] | None = None) -> int:
                 f"semitones; {args.semitones:+g} is outside that range.",
                 file=sys.stderr,
             )
-        ckpt = args.ckpt or find_ckpt(Path("./checkpoints"))
         if ckpt is None:
             print(
                 "No checkpoint found in ./checkpoints/ and --ckpt not given.",
@@ -168,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         if args.verbose:
+            print(f"Engine: model, formants {formant:+g} semitones")
             print(f"Loading PitchUNet from {ckpt}")
         unet = load_unet(ckpt, device, use_ema=not args.no_ema)
 
@@ -189,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
                 device,
                 batch_size=args.batch_size,
                 verbose=args.verbose,
+                formant_semis=formant,
             )
 
         def shift(audio: np.ndarray) -> np.ndarray:
@@ -196,14 +226,13 @@ def main(argv: list[str] | None = None) -> int:
                 return through_model(audio)
             # Mid/side: the mid (what both channels share, i.e. the voice)
             # goes through the model; the side (reverb, doubles) is not a
-            # single voice, so it gets a plain phase-vocoder shift and the
-            # stereo image is rebuilt.
+            # single voice, so Rubber Band shifts it with the same formant
+            # setting, and the stereo image is rebuilt. A plain phase vocoder
+            # here moved the side's formants with the pitch.
             mid = through_model(audio.mean(axis=0))
             side = (audio[0] - audio[1]) / 2.0
             if float(np.abs(side).max()) > 1e-6:
-                side = librosa.effects.pitch_shift(
-                    side, sr=DEMUCS_SR, n_steps=args.semitones
-                )
+                side = rubberband_shift(side, DEMUCS_SR, args.semitones, formant)
                 side = _match_length(side, mid.shape[-1])
             return np.stack([mid + side, mid - side], axis=0)
 
@@ -217,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.no_separate:
         # The model shifts one voice, so it gets mono; Rubber Band keeps stereo.
-        mono = args.engine == "model"
+        mono = engine == "model"
         if args.verbose:
             print(f"Loading {args.input} @ {DEMUCS_SR} Hz")
         audio, _ = librosa.load(args.input, sr=DEMUCS_SR, mono=mono)

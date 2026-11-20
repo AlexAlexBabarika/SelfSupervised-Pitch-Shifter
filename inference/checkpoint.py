@@ -26,8 +26,16 @@ def find_ckpt(ckpt_dir: Path) -> Path | None:
 
 
 def load_unet(ckpt_path: Path, device: torch.device, use_ema: bool) -> PitchUNet:
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     model = PitchUNet().to(device)
+    if Path(ckpt_path).suffix == ".safetensors":
+        # A released model: the EMA weights alone, already applied, so
+        # use_ema has nothing to choose between.
+        from safetensors.torch import load_file
+
+        model.load_state_dict(load_file(str(ckpt_path), device="cpu"))
+        model.eval()
+        return model
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model"])
     if use_ema:
         shadow = ckpt["ema"]["shadow"]
