@@ -1,7 +1,7 @@
 [project]
 name = "pitch-shifter"
 version = "0.1.0"
-description = "Add your description here"
+description = "Song pitch shifter: Demucs stems, Rubber Band or a self-supervised U-Net that cleans up WORLD shifts for the vocal, Signalsmith for the instruments"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

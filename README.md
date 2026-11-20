@@ -15,9 +15,10 @@ the shift size picks one: Rubber Band up to 3 semitones, the model above that
   clean mel-spectrogram of the shifted signal, and a BigVGAN vocoder resynthesizes
   the audio. It needs a trained checkpoint
   ([weights on Hugging Face](https://huggingface.co/AlexAlexBabarika/SelfSupervised-Pitch-Shifter)).
-  At 6 semitones it is ahead of Rubber Band on the envelope and round-trip measures
-  and was preferred in a small blind listening test, but large shifts still sound
-  somewhat robotic.
+  At 6 semitones it was preferred over Rubber Band in a small blind listening test,
+  but large shifts still sound somewhat robotic. It also scores ahead at 6 semitones
+  on the envelope and round-trip measures, but mostly in a band the test clips can't
+  give Rubber Band; below 6 kHz Rubber Band is ahead (see [Evaluation](#evaluation)).
 
 ## How the model engine works
 
@@ -205,6 +206,16 @@ source. A round trip (`+s` then `-s`) is compared with the original clip by log-
 L1 and mel-cepstral distortion. Results are printed as a table and written to
 `eval_results.json`.
 
+The clips are 22.05 kHz, so they hold nothing above about 11 kHz. On a 6-semitone shift a
+shifter that scales frequencies (Rubber Band, librosa) has nothing to move into the top
+of the mel range, while WORLD rebuilds it, so the full-band envelope and round-trip
+measures favour the WORLD-based systems at large shifts. This is why Rubber Band's round-trip MCD at
+±6 is 33 to 41 dB, against 8 to 14 at smaller shifts. At 44.1 kHz, as the tool runs it,
+Rubber Band keeps that band going up and loses part of it going down.
+`--score-fmax 6000` scores those measures below the affected band. On 14 clips of
+separated vocals from two songs, scored that way, Rubber Band was ahead of the model at
+±6 on all three. `eval_final.json` was scored on the full band.
+
 ## Notes
 
 - All preprocessing and training run at 22.05 kHz mono with 80-bin mels
@@ -215,3 +226,13 @@ L1 and mel-cepstral distortion. Results are printed as a table and written to
 - The default vocoder is BigVGAN base (22 kHz, 80 bands); its code is vendored in
   `inference/bigvgan/` (MIT, NVIDIA). The HiFi-GAN UNIVERSAL_V1 generator in
   `inference/hifigan/` is still supported. Weights are fetched from the Hub.
+
+## License
+
+The code is MIT (`LICENSE`). The vendored vocoders keep their own MIT licences
+(`inference/bigvgan/LICENSE`, `inference/hifigan/LICENSE`). The released model weights
+on [Hugging Face](https://huggingface.co/AlexAlexBabarika/SelfSupervised-Pitch-Shifter)
+are CC BY-NC-SA 4.0, because they were trained on GTSinger: non-commercial use only.
+
+The successor, which replaces WORLD with HuBERT-style content features, is
+[Resung](https://github.com/AlexAlexBabarika/Resung).

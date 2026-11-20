@@ -38,6 +38,8 @@ SYSTEMS = [
 # Stricter than the training threshold: only score frames CREPE is sure about.
 EVAL_VOICED = 0.5
 GROSS_CENTS = 50.0
+# Centre frequency of each mel band (the transform uses the Slaney scale).
+MEL_HZ = librosa.mel_frequencies(cfg.n_mels + 2, fmin=cfg.fmin, fmax=cfg.fmax)[1:-1]
 
 
 def _resolve_device(arg: str) -> torch.device:
@@ -120,7 +122,10 @@ def make_systems(unet, vocoder, device):
     }
 
 
-def score_batch(clips, f0_src, conf_src, mel_src, shift, system) -> dict[str, list]:
+def score_batch(
+    clips, f0_src, conf_src, mel_src, shift, system, band=slice(None)
+) -> dict[str, list]:
+    # band selects the mel bands that the envelope and round-trip measures use.
     out: dict[str, list] = {
         k: [] for k in ("cents", "gross", "kept", "env", "rt_l1", "rt_mcd")
     }
@@ -137,15 +142,16 @@ def score_batch(clips, f0_src, conf_src, mel_src, shift, system) -> dict[str, li
     out["cents"].extend(cents.tolist())
     out["gross"].extend((cents > GROSS_CENTS).tolist())
     out["kept"].extend(both[src_voiced].tolist())
-    env = np.abs(_envelope(mel_y) - _envelope(mel_src)).mean(-2)
+    env = np.abs(_envelope(mel_y) - _envelope(mel_src))[:, band].mean(-2)
     out["env"].extend(env[src_voiced].tolist())
 
     # Round trip: shift there and back, compare with the original clip on
     # its voiced frames.
     back = system(y, -shift)
     mel_back = compute_mel_spectrogram(back)
-    out["rt_l1"].extend(np.abs(mel_back - mel_src).mean(-2)[src_voiced].tolist())
-    out["rt_mcd"].extend(_mcd(mel_back, mel_src)[src_voiced].tolist())
+    rt_l1 = np.abs(mel_back - mel_src)[:, band].mean(-2)
+    out["rt_l1"].extend(rt_l1[src_voiced].tolist())
+    out["rt_mcd"].extend(_mcd(mel_back[:, band], mel_src[:, band])[src_voiced].tolist())
     return out
 
 
@@ -177,7 +183,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--vocoder-repo", default=TrainConfig().vocoder_repo)
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
     p.add_argument("--out", type=Path, default=Path("eval_results.json"))
+    # The clips are 22.05 kHz, so they hold nothing above about 11 kHz. On a
+    # 6-semitone shift a shifter that scales frequencies (Rubber Band,
+    # librosa) has nothing to move into the top band: going down it has no
+    # content from above 11 kHz, and its formant correction then suppresses
+    # that band on the way back up. WORLD rebuilds every harmonic up to the
+    # Nyquist frequency and avoids this. This is why Rubber Band's round-trip MCD
+    # at +-6 is 33 to 41 dB against 8 to 14 at smaller shifts. At 44.1 kHz,
+    # as the tool runs it, Rubber Band keeps that band going up and loses part
+    # of it going down. --score-fmax 6000 compares the systems below the band.
+    p.add_argument(
+        "--score-fmax",
+        type=float,
+        default=float(cfg.fmax),
+        help="score envelope and round-trip measures on mel bands below this (Hz)",
+    )
     args = p.parse_args(argv)
+    band = MEL_HZ < args.score_fmax
 
     device = _resolve_device(args.device)
     ckpt = args.ckpt or find_ckpt(Path("./checkpoints"))
@@ -206,7 +228,11 @@ def main(argv: list[str] | None = None) -> int:
         print("No full-length validation clips found.", file=sys.stderr)
         return 2
     shifts = [float(s) for s in args.shifts.split(",")]
-    print(f"{len(files)} held-out clips, checkpoint {ckpt}, shifts {shifts}")
+    print(
+        f"{len(files)} held-out clips, checkpoint {ckpt}, shifts {shifts}, "
+        f"envelope and round trip scored on {band.sum()} of {cfg.n_mels} mel bands "
+        f"(below {args.score_fmax:g} Hz)"
+    )
 
     acc = {(name, s): None for name in names for s in shifts}
     for i in tqdm(range(0, len(files), args.batch_size), desc="batches"):
@@ -219,7 +245,9 @@ def main(argv: list[str] | None = None) -> int:
         mel_src = compute_mel_spectrogram(clips)
         for name in names:
             for s in shifts:
-                part = score_batch(clips, f0_src, conf_src, mel_src, s, systems[name])
+                part = score_batch(
+                    clips, f0_src, conf_src, mel_src, s, systems[name], band
+                )
                 if acc[(name, s)] is None:
                     acc[(name, s)] = part
                 else:
@@ -254,7 +282,13 @@ def main(argv: list[str] | None = None) -> int:
 
     args.out.write_text(
         json.dumps(
-            {"ckpt": str(ckpt), "n_clips": len(files), "results": results}, indent=2
+            {
+                "ckpt": str(ckpt),
+                "n_clips": len(files),
+                "score_fmax_hz": args.score_fmax,
+                "results": results,
+            },
+            indent=2,
         )
     )
     print(f"\nWrote {args.out}")
